@@ -1,0 +1,23 @@
+{
+  "project": "honor_robot_phone",
+  "type": "broll",
+  "video": "broll2.webm",
+  "segments": [
+    {
+      "name": "Segment 1",
+      "start": 17.745,
+      "end": 20.786,
+      "aroll_segment_index": null,
+      "aroll_segment_name": "Hook 1",
+      "max_duration": 3.041
+    },
+    {
+      "name": "Segment 2",
+      "start": 7.79,
+      "end": 12.408,
+      "aroll_segment_index": 1,
+      "aroll_segment_name": "Segment 1",
+      "max_duration": 4.618
+    }
+  ]
+}
