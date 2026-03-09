@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Trimmer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #1a1a2e; --surface: #16213e; --surface2: #0f3460;
+            --accent: #e94560; --text: #eee; --text-dim: #888;
+            --border: #2a2a4a; --success: #4CAF50; --warning: #FF9800;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); color: var(--text);
+            height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+        }
+        header {
+            background: var(--surface); padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border); flex-shrink: 0;
+        }
+        header h1 { font-size: 16px; font-weight: 600; }
+        #project-info { font-size: 12px; color: var(--text-dim); }
+        #save-status { font-size: 11px; color: var(--success); margin-left: 10px; transition: opacity 0.3s; }
+        #session-restore-hint {
+            font-size: 11px;
+            color: #8fd3ff;
+            margin-left: 8px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            white-space: nowrap;
+        }
+        #session-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .session-select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            min-width: 140px;
+        }
+        .session-select:focus { outline: none; border-color: var(--accent); }
+        #save-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        #save-btn:hover { border-color: var(--success); color: var(--success); }
+
+        /* ── Video player ─────────────────────────────────── */
+        #player-container {
+            display: flex; justify-content: center; background: #000;
+            max-height: 42vh; flex-shrink: 0; overflow: hidden;
+        }
+        #video { max-width: 100%; max-height: 42vh; display: block; }
+
+        /* ── Controls bar ─────────────────────────────────── */
+        #controls-bar {
+            background: var(--surface); padding: 10px 20px;
+            border-bottom: 1px solid var(--border); flex-shrink: 0;
+        }
+
+        /* Timeline */
+        #timeline-wrapper {
+            position: relative; height: 32px; margin-bottom: 8px; cursor: pointer;
+        }
+        #timeline-bg {
+            position: absolute; top: 10px; left: 0; right: 0; height: 12px;
+            background: #333; border-radius: 6px; overflow: hidden;
+        }
+        #timeline-progress {
+            height: 100%; background: rgba(233,69,96,0.6); width: 0;
+        }
+        #timeline-segments { position: absolute; top: 0; left: 0; right: 0; height: 32px; pointer-events: none; }
+        .tl-seg {
+            position: absolute; top: 2px; height: 28px; border-radius: 3px;
+            opacity: 0.45; border: 1px solid rgba(255,255,255,0.15);
+            pointer-events: auto; cursor: pointer; transition: opacity 0.12s;
+        }
+        .tl-seg:hover, .tl-seg.active { opacity: 0.75; border-color: rgba(255,255,255,0.5); }
+        #playhead {
+            position: absolute; top: 0; width: 2px; height: 32px;
+            background: #fff; pointer-events: none; z-index: 10; left: 0;
+        }
+
+        /* Waveform tile */
+        #waveform-wrapper {
+            position: relative;
+            height: 56px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: linear-gradient(180deg, #141f39 0%, #101a2f 100%);
+            margin-bottom: 8px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        #waveform-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #waveform-status {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 11px;
+            color: var(--text-dim);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        /* Transport */
+        #transport { display: flex; align-items: center; gap: 6px; }
+        .tbtn {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 5px 10px; border-radius: 4px;
+            cursor: pointer; font-size: 13px; font-family: monospace;
+        }
+        .tbtn:hover { background: var(--accent); }
+        #time-display {
+            font-family: 'SF Mono','Fira Code',monospace; font-size: 13px;
+            color: var(--text-dim); margin-left: 8px;
+        }
+        #shortcuts-hint { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+        #zoom-level { font-size: 10px; color: var(--text-dim); margin-left: 8px; }
+
+        /* ── Segments section ─────────────────────────────── */
+        #segments-section { flex: 1; overflow-y: auto; padding: 12px 20px; }
+        #segments-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px; position: sticky; top: 0; background: var(--bg);
+            padding: 4px 0; z-index: 5;
+        }
+        #segments-header h2 { font-size: 15px; font-weight: 600; }
+        #add-btn {
+            background: var(--success); border: none; color: #fff;
+            width: 28px; height: 28px; border-radius: 50%; font-size: 18px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        #add-btn:hover { background: #66BB6A; }
+
+        /* Segment items */
+        #segment-list { display: flex; flex-direction: column; gap: 6px; }
+        .seg-item {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 6px; padding: 10px; transition: border-color 0.12s;
+        }
+        .seg-item.active { border-color: var(--accent); }
+        .seg-item.drag-over { border-color: var(--success); border-style: dashed; }
+        .seg-row { display: flex; align-items: center; gap: 6px; }
+        .drag-handle {
+            cursor: grab; color: var(--text-dim); font-size: 14px;
+            padding: 2px 4px; user-select: none;
+        }
+        .drag-handle:active { cursor: grabbing; }
+        .seg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .seg-name {
+            flex: 1; background: transparent; border: 1px solid transparent;
+            color: var(--text); font-size: 13px; padding: 3px 6px; border-radius: 3px;
+            min-width: 0;
+        }
+        .seg-name:hover { border-color: var(--border); }
+        .seg-name:focus { border-color: var(--accent); outline: none; background: rgba(255,255,255,0.04); }
+        .seg-times {
+            font-family: 'SF Mono','Fira Code',monospace; font-size: 12px;
+            color: var(--text-dim); white-space: nowrap;
+        }
+        .time-val { cursor: pointer; padding: 1px 3px; border-radius: 2px; }
+        .time-val:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+        .seg-dur {
+            font-family: 'SF Mono','Fira Code',monospace; font-size: 10px;
+            color: var(--text-dim); margin-left: 6px;
+        }
+        .rm-btn {
+            background: #c62828; border: none; color: #fff;
+            width: 22px; height: 22px; border-radius: 50%; font-size: 14px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; line-height: 1;
+        }
+        .rm-btn:hover { background: #e53935; }
+
+        /* Action row */
+        .seg-actions { display: flex; align-items: center; gap: 4px; margin-top: 6px; padding-left: 32px; flex-wrap: wrap; }
+        .abtn {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text-dim); padding: 3px 8px; border-radius: 3px;
+            cursor: pointer; font-size: 11px; white-space: nowrap;
+        }
+        .abtn:hover { color: var(--text); border-color: var(--accent); }
+        .abtn.set-s:hover { border-color: var(--success); color: var(--success); }
+        .abtn.set-e:hover { border-color: var(--warning); color: var(--warning); }
+
+        /* B-Roll selector row */
+        .aroll-row {
+            display: flex; align-items: center; gap: 6px; margin-top: 6px;
+            padding-left: 32px; font-size: 11px; flex-wrap: wrap;
+        }
+        .aroll-row select {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 3px 6px; border-radius: 3px; font-size: 11px;
+        }
+        .max-dur { color: var(--warning); }
+        .dur-warn { color: var(--accent); font-size: 10px; font-weight: bold; }
+
+        #empty-state { text-align: center; padding: 30px; color: var(--text-dim); }
+        #empty-state p { margin-bottom: 6px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <header>
+        <div id="session-controls">
+            <select id="project-select" class="session-select" title="Project"></select>
+            <select id="mode-select" class="session-select" title="Mode">
+                <option value="aroll">A-Roll</option>
+                <option value="broll">B-Roll</option>
+            </select>
+            <select id="video-select" class="session-select" title="Video"></select>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+            <h1>Video Trimmer</h1>
+            <button id="save-btn" title="Save current segment list">Save</button>
+            <span id="save-status"></span>
+            <span id="session-restore-hint"></span>
+        </div>
+        <span id="project-info">Loading...</span>
+    </header>
+
+    <div id="player-container">
+        <video id="video" preload="auto"></video>
+    </div>
+
+    <div id="controls-bar">
+        <div id="timeline-wrapper">
+            <div id="timeline-bg"><div id="timeline-progress"></div></div>
+            <div id="timeline-segments"></div>
+            <div id="playhead"></div>
+        </div>
+        <div id="waveform-wrapper" title="Click to seek">
+            <canvas id="waveform-canvas"></canvas>
+            <div id="waveform-status">Analyzing audio…</div>
+        </div>
+        <div id="transport">
+            <button class="tbtn" id="btn-prev" title="Previous frame (←)">◄</button>
+            <button class="tbtn" id="btn-play" title="Play / Pause (Space)">▶</button>
+            <button class="tbtn" id="btn-next" title="Next frame (→)">►</button>
+            <span id="time-display">00:00.000 / 00:00.000</span>
+            <span id="shortcuts-hint">← → frame · Space play/pause · Wheel zoom</span>
+            <span id="zoom-level">Zoom: 1.0x</span>
+        </div>
+    </div>
+
+    <div id="segments-section">
+        <div id="segments-header">
+            <h2 id="seg-title">Segments</h2>
+            <button id="add-btn" title="Add segment">+</button>
+        </div>
+        <div id="segment-list"></div>
+    </div>
+
+<script>
+/* ================================================================
+   STATE
+   ================================================================ */
+let config = {};
+let segments = [];
+let arollSegments = [];
+let activeIdx = -1;
+let saveTimer = null;
+let dragFrom = -1;
+let waveformPeaks = null;
+let timelineZoom = 1;
+let timelineCenterTime = 0;
+let selectorSync = false;
+let heartbeatTimer = null;
+let pingTimer = null;
+
+const COLORS = [
+    '#4CAF50','#2196F3','#FF9800','#E91E63','#9C27B0',
+    '#00BCD4','#FFEB3B','#795548','#607D8B','#FF5722',
+    '#3F51B5','#8BC34A','#FFC107','#673AB7','#009688',
+];
+
+/* ── DOM refs ──────────────────────────────────────────────── */
+const video         = document.getElementById('video');
+const tlWrap        = document.getElementById('timeline-wrapper');
+const tlProgress    = document.getElementById('timeline-progress');
+const tlSegs        = document.getElementById('timeline-segments');
+const phd           = document.getElementById('playhead');
+const waveWrap      = document.getElementById('waveform-wrapper');
+const waveCanvas    = document.getElementById('waveform-canvas');
+const waveStatus    = document.getElementById('waveform-status');
+const btnPlay       = document.getElementById('btn-play');
+const timeDisp      = document.getElementById('time-display');
+const segList       = document.getElementById('segment-list');
+const addBtn        = document.getElementById('add-btn');
+const projInfo      = document.getElementById('project-info');
+const saveStatus    = document.getElementById('save-status');
+const restoreHint   = document.getElementById('session-restore-hint');
+const saveBtn       = document.getElementById('save-btn');
+const segTitle      = document.getElementById('seg-title');
+const zoomLevel     = document.getElementById('zoom-level');
+const projectSelect = document.getElementById('project-select');
+const modeSelect    = document.getElementById('mode-select');
+const videoSelect   = document.getElementById('video-select');
+
+/* ── Helpers ───────────────────────────────────────────────── */
+function fmt(s) {
+    if (s == null || isNaN(s)) return '--:--.---';
+    const m = Math.floor(s / 60);
+    const r = s - m * 60;
+    return `${String(m).padStart(2,'0')}:${r.toFixed(3).padStart(6,'0')}`;
+}
+function color(i) { return COLORS[i % COLORS.length]; }
+function dur(seg) {
+    return (seg.start != null && seg.end != null) ? Math.max(0, seg.end - seg.start) : 0;
+}
+function round3(t) { return Math.round(t * 1000) / 1000; }
+
+function getArollSegmentByIndex(index) {
+    const idx = Number(index);
+    if (!Number.isInteger(idx)) return null;
+    if (idx < 0 || idx >= arollSegments.length) return null;
+    return { idx, seg: arollSegments[idx] };
+}
+
+function getBrollMaxDuration(seg) {
+    if (config.mode !== 'broll') return null;
+    const ref = getArollSegmentByIndex(seg.aroll_segment_index);
+    if (!ref) return null;
+    const maxDur = round3(dur(ref.seg));
+    return Number.isFinite(maxDur) ? maxDur : null;
+}
+
+function brollEndFromStart(start, maxDur) {
+    const vidDur = Number(video.duration);
+    const cap = Number.isFinite(vidDur) && vidDur > 0 ? vidDur : Infinity;
+    return round3(Math.min(cap, start + maxDur));
+}
+
+function getVisibleWindow() {
+    const d = video.duration || 0;
+    if (d <= 0) return { start: 0, end: 0, span: 0 };
+
+    const zoom = Math.max(1, timelineZoom);
+    const span = d / zoom;
+    if (zoom <= 1) {
+        return { start: 0, end: d, span: d };
+    }
+
+    const half = span / 2;
+    let center = Number.isFinite(timelineCenterTime) ? timelineCenterTime : video.currentTime || 0;
+    center = Math.max(half, Math.min(d - half, center));
+    const start = Math.max(0, center - half);
+    const end = Math.min(d, start + span);
+    return { start, end, span: end - start };
+}
+
+function timeFromPosition(clientX, rect) {
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const w = getVisibleWindow();
+    return w.start + pct * w.span;
+}
+
+function updateZoomLabel() {
+    zoomLevel.textContent = `Zoom: ${timelineZoom.toFixed(1)}x`;
+}
+
+function zoomAt(clientX, rect, deltaY) {
+    const d = video.duration || 0;
+    if (d <= 0) return;
+
+    const pointerTime = timeFromPosition(clientX, rect);
+    const factor = deltaY < 0 ? 1.18 : 1 / 1.18;
+    timelineZoom = Math.max(1, Math.min(30, timelineZoom * factor));
+
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    if (timelineZoom <= 1) {
+        timelineCenterTime = d / 2;
+    } else {
+        const newSpan = d / timelineZoom;
+        let start = pointerTime - pct * newSpan;
+        start = Math.max(0, Math.min(d - newSpan, start));
+        timelineCenterTime = start + newSpan / 2;
+    }
+
+    updateZoomLabel();
+    updateTime();
+    renderTlSegs();
+}
+
+function resizeWaveCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.floor(waveWrap.clientWidth));
+    const h = Math.max(1, Math.floor(waveWrap.clientHeight));
+    waveCanvas.width = Math.floor(w * dpr);
+    waveCanvas.height = Math.floor(h * dpr);
+    const ctx = waveCanvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function drawWaveform() {
+    const ctx = waveCanvas.getContext('2d');
+    const w = waveWrap.clientWidth;
+    const h = waveWrap.clientHeight;
+    if (w <= 0 || h <= 0) return;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0f1a30';
+    ctx.fillRect(0, 0, w, h);
+
+    const mid = h / 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(w, mid);
+    ctx.stroke();
+
+    const view = getVisibleWindow();
+
+    if (Array.isArray(waveformPeaks) && waveformPeaks.length > 0 && view.span > 0) {
+        const total = waveformPeaks.length;
+        const from = Math.max(0, Math.floor((view.start / (video.duration || 1)) * total));
+        const to = Math.max(from + 1, Math.min(total, Math.ceil((view.end / (video.duration || 1)) * total)));
+        const bars = to - from;
+        const barW = w / bars;
+        ctx.fillStyle = 'rgba(233, 69, 96, 0.70)';
+        for (let i = 0; i < bars; i++) {
+            const amp = waveformPeaks[from + i];
+            const bh = Math.max(1, amp * (h * 0.9));
+            const x = i * barW;
+            ctx.fillRect(x, mid - bh / 2, Math.max(1, barW - 1), bh);
+        }
+    }
+
+    if (view.span > 0) {
+        const ct = currentDisplayTime();
+        const x = Math.max(0, Math.min(w, ((ct - view.start) / view.span) * w));
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+    }
+}
+
+async function buildWaveform() {
+    waveStatus.textContent = 'Analyzing audio...';
+    waveStatus.style.display = 'block';
+    waveformPeaks = null;
+    drawWaveform();
+
+    try {
+        const hasAudioRes = await fetch(`/api/has-audio?video=${encodeURIComponent(config.videoFilename)}`);
+        if (hasAudioRes.ok) {
+            const hasAudioPayload = await hasAudioRes.json();
+            if (!hasAudioPayload.hasAudio) {
+                waveStatus.textContent = 'No audio found';
+                waveformPeaks = null;
+                drawWaveform();
+                return;
+            }
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        const response = await fetch(`/api/waveform?video=${encodeURIComponent(config.videoFilename)}`, {
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (payload && payload.noAudio) {
+            waveStatus.textContent = 'No audio found';
+            waveformPeaks = null;
+            drawWaveform();
+            return;
+        }
+        waveformPeaks = Array.isArray(payload.peaks) ? payload.peaks : null;
+        if (!waveformPeaks || waveformPeaks.length === 0) {
+            throw new Error(payload.error || 'No waveform peaks');
+        }
+        waveStatus.style.display = 'none';
+        drawWaveform();
+    } catch (err) {
+        const isTimeout = err && (err.name === 'AbortError');
+        waveStatus.textContent = isTimeout
+            ? 'Waveform timed out for this file'
+            : 'Waveform unavailable for this file';
+        waveformPeaks = null;
+        drawWaveform();
+    }
+}
+
+/* ── API ───────────────────────────────────────────────────── */
+async function loadConfig() {
+    config = await (await fetch('/api/config')).json();
+    syncHeader();
+}
+
+function syncHeader() {
+    const label = config.mode === 'aroll' ? 'A-Roll' : 'B-Roll';
+    projInfo.textContent = `${config.project} · ${label} · ${config.videoFilename}`;
+    segTitle.textContent = config.mode === 'broll' ? 'B-Roll Segments' : 'A-Roll Segments';
+    document.title = `Trimmer · ${config.project} · ${label}`;
+}
+
+function setSelectOptions(sel, values, selected) {
+    sel.innerHTML = '';
+    values.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        if (v === selected) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    sel.disabled = values.length === 0;
+}
+
+async function loadOptions(project = null, mode = null) {
+    const params = new URLSearchParams();
+    if (project) params.set('project', project);
+    if (mode) params.set('mode', mode);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return (await fetch(`/api/options${suffix}`)).json();
+}
+
+async function refreshSelectors(base = null) {
+    const options = await loadOptions(base?.project || null, base?.mode || null);
+    const selected = base || options.selected;
+
+    selectorSync = true;
+    setSelectOptions(projectSelect, options.projects || [], selected.project);
+    modeSelect.value = selected.mode;
+    setSelectOptions(videoSelect, options.videos || [], selected.videoFilename);
+    selectorSync = false;
+
+    if (!videoSelect.value) {
+        projInfo.textContent = 'No matching videos for this mode in selected project';
+    }
+}
+
+async function updateSession(next) {
+    const res = await fetch('/api/session', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(next),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+        throw new Error(data.error || `Session update failed (${res.status})`);
+    }
+    config = data.session;
+    syncHeader();
+}
+
+function setVideoSource() {
+    video.src = `/video/${encodeURIComponent(config.videoFilename)}`;
+}
+
+function showRestoreHint() {
+    restoreHint.textContent = 'Session restored from global backup';
+    restoreHint.style.opacity = '1';
+    setTimeout(() => {
+        restoreHint.style.opacity = '0';
+    }, 4500);
+}
+
+async function loadSegments() {
+    const d = await (await fetch('/api/segments')).json();
+    segments = d.segments || [];
+
+    // Normalize persisted types from JSON for stable comparisons and constraints.
+    if (config.mode === 'broll') {
+        segments.forEach(seg => {
+            if (seg.aroll_segment_index !== null && seg.aroll_segment_index !== undefined && seg.aroll_segment_index !== '') {
+                const idx = Number(seg.aroll_segment_index);
+                seg.aroll_segment_index = Number.isInteger(idx) ? idx : null;
+            } else {
+                seg.aroll_segment_index = null;
+            }
+            if (seg.aroll_segment_index == null) {
+                seg.aroll_segment_name = null;
+                seg.max_duration = null;
+            }
+        });
+    }
+}
+
+async function loadArollSegments() {
+    if (config.mode !== 'broll') return;
+    const d = await (await fetch('/api/aroll-segments')).json();
+    arollSegments = d.segments || [];
+}
+
+async function reloadForSession() {
+    activeIdx = -1;
+    timelineZoom = 1;
+    timelineCenterTime = 0;
+    updateZoomLabel();
+    setVideoSource();
+    await loadSegments();
+    if (config.mode === 'broll') {
+        await loadArollSegments();
+    } else {
+        arollSegments = [];
+    }
+    renderSegList();
+    renderTlSegs();
+    buildWaveform();
+}
+
+async function handleSelectionChange(nextBase) {
+    try {
+        await refreshSelectors(nextBase);
+        const nextVideo = videoSelect.value;
+        if (!nextVideo) return;
+        await updateSession({
+            project: projectSelect.value,
+            mode: modeSelect.value,
+            videoFilename: nextVideo,
+        });
+        await reloadForSession();
+    } catch (err) {
+        projInfo.textContent = `Session change failed: ${err.message}`;
+    }
+}
+
+function segmentsPayload() {
+    return {
+        project: config.project,
+        type: config.mode,
+        video: config.videoFilename,
+        segments,
+    };
+}
+
+async function saveSegments(showStatus = true) {
+    await fetch('/api/segments', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(segmentsPayload()),
+        keepalive: true,
+    });
+    if (showStatus) {
+        saveStatus.textContent = '✓ Saved';
+        saveStatus.style.opacity = '1';
+        setTimeout(() => { saveStatus.style.opacity = '0'; }, 1500);
+    }
+}
+
+function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { saveSegments(false); }, 400);
+}
+
+function flushSaveOnClose() {
+    clearTimeout(saveTimer);
+    const payload = JSON.stringify(segmentsPayload());
+    const blob = new Blob([payload], { type: 'application/json' });
+    if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/segments', blob);
+    } else {
+        fetch('/api/segments', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: payload,
+            keepalive: true,
+        });
+    }
+}
+
+function notifyServer(path) {
+    const blob = new Blob(['{}'], { type: 'application/json' });
+    if (navigator.sendBeacon) {
+        navigator.sendBeacon(path, blob);
+        return;
+    }
+    fetch(path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: '{}',
+        keepalive: true,
+    }).catch(() => {});
+}
+
+function tryCloseTab() {
+    window.open('', '_self');
+    window.close();
+    document.body.innerHTML = '<div style="font-family:monospace;padding:24px">Server stopped. You can close this tab.</div>';
+}
+
+function startServerLifecycle() {
+    notifyServer('/api/client-open');
+    heartbeatTimer = setInterval(() => notifyServer('/api/client-heartbeat'), 4000);
+    pingTimer = setInterval(async () => {
+        try {
+            const r = await fetch('/api/ping', { cache: 'no-store' });
+            if (!r.ok) throw new Error('ping failed');
+        } catch (_err) {
+            clearInterval(heartbeatTimer);
+            clearInterval(pingTimer);
+            tryCloseTab();
+        }
+    }, 3000);
+}
+
+/* ── Video controls ────────────────────────────────────────── */
+function togglePlay() {
+    if (video.paused) { video.play(); } else { video.pause(); }
+}
+
+function stepFrame(dir) {
+    video.pause();
+    const fps = config.fps || 30;
+    video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + dir / fps));
+    updateTime();
+}
+
+let scrubDisplayTime = null; // virtual time shown during drag (instant updates)
+
+function currentDisplayTime() {
+    return (tlDrag || waveDrag) && scrubDisplayTime != null ? scrubDisplayTime : (video.currentTime || 0);
+}
+
+function updateTime() {
+    const c = currentDisplayTime();
+    const d = video.duration || 0;
+
+    if (timelineZoom > 1 && d > 0) {
+        const w = getVisibleWindow();
+        if (c < w.start || c > w.end) {
+            timelineCenterTime = c;
+        }
+    }
+
+    timeDisp.textContent = `${fmt(c)} / ${fmt(d)}`;
+    if (d > 0) {
+        const w = getVisibleWindow();
+        const pct = w.span > 0 ? ((c - w.start) / w.span) * 100 : 0;
+        tlProgress.style.width = pct + '%';
+        phd.style.left = pct + '%';
+    }
+
+    drawWaveform();
+}
+
+/* ── Timeline ──────────────────────────────────────────────── */
+function renderTlSegs() {
+    tlSegs.innerHTML = '';
+    const d = video.duration || 0;
+    if (d <= 0) return;
+    const view = getVisibleWindow();
+    segments.forEach((seg, i) => {
+        if (seg.start == null || seg.end == null) return;
+        if (seg.end < view.start || seg.start > view.end) return;
+
+        const clippedStart = Math.max(seg.start, view.start);
+        const clippedEnd = Math.min(seg.end, view.end);
+        const leftPct = ((clippedStart - view.start) / view.span) * 100;
+        const widthPct = Math.max(0.3, ((clippedEnd - clippedStart) / view.span) * 100);
+
+        const el = document.createElement('div');
+        el.className = 'tl-seg' + (i === activeIdx ? ' active' : '');
+        el.style.left = leftPct + '%';
+        el.style.width = widthPct + '%';
+        el.style.background = color(i);
+        el.title = `${seg.name}: ${fmt(seg.start)} → ${fmt(seg.end)}`;
+        el.addEventListener('click', e => {
+            e.stopPropagation();
+            activeIdx = i;
+            video.currentTime = seg.start;
+            renderSegList();
+            renderTlSegs();
+        });
+        tlSegs.appendChild(el);
+    });
+}
+
+/* Timeline scrubbing */
+let tlDrag = false;
+let waveDrag = false;
+let scrubPendingTime = null;
+let lastScrubTime = null;
+let scrubSeeking = false;
+
+function queueScrub(clientX, rect) {
+    if ((video.duration || 0) <= 0) return;
+    const t = Math.max(0, Math.min(video.duration || 0, timeFromPosition(clientX, rect)));
+    scrubDisplayTime = t;
+    scrubPendingTime = t;
+    lastScrubTime = t;
+    updateTime();   // instant UI feedback
+    flushScrub();   // issue seek to video when ready
+}
+
+function flushScrub() {
+    if (scrubSeeking || scrubPendingTime == null) return;
+    const t = scrubPendingTime;
+    scrubPendingTime = null;
+    scrubSeeking = true;
+    video.currentTime = t;
+}
+
+function onScrubSeeked() {
+    if (!scrubSeeking) return;
+    scrubSeeking = false;
+    if ((tlDrag || waveDrag) && scrubPendingTime != null) {
+        flushScrub();
+    }
+}
+
+video.addEventListener('seeked', onScrubSeeked);
+
+function finishScrub() {
+    scrubSeeking = false;
+    scrubPendingTime = null;
+    scrubDisplayTime = null;
+    if (lastScrubTime != null && (video.duration || 0) > 0) {
+        const t = Math.max(0, Math.min(video.duration || 0, lastScrubTime));
+        video.currentTime = t;
+        updateTime();
+    }
+}
+
+tlWrap.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    video.pause();
+    tlDrag = true;
+    tlWrap.setPointerCapture(e.pointerId);
+    queueScrub(e.clientX, tlWrap.getBoundingClientRect());
+});
+
+tlWrap.addEventListener('pointermove', e => {
+    if (!tlDrag) return;
+    queueScrub(e.clientX, tlWrap.getBoundingClientRect());
+});
+
+tlWrap.addEventListener('pointerup', e => {
+    if (!tlDrag) return;
+    tlDrag = false;
+    if (tlWrap.hasPointerCapture(e.pointerId)) {
+        tlWrap.releasePointerCapture(e.pointerId);
+    }
+    finishScrub();
+});
+
+tlWrap.addEventListener('pointercancel', e => {
+    if (!tlDrag) return;
+    tlDrag = false;
+    if (tlWrap.hasPointerCapture(e.pointerId)) {
+        tlWrap.releasePointerCapture(e.pointerId);
+    }
+    finishScrub();
+});
+
+waveWrap.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    video.pause();
+    waveDrag = true;
+    waveWrap.setPointerCapture(e.pointerId);
+    queueScrub(e.clientX, waveWrap.getBoundingClientRect());
+});
+
+waveWrap.addEventListener('pointermove', e => {
+    if (!waveDrag) return;
+    queueScrub(e.clientX, waveWrap.getBoundingClientRect());
+});
+
+waveWrap.addEventListener('pointerup', e => {
+    if (!waveDrag) return;
+    waveDrag = false;
+    if (waveWrap.hasPointerCapture(e.pointerId)) {
+        waveWrap.releasePointerCapture(e.pointerId);
+    }
+    finishScrub();
+});
+
+waveWrap.addEventListener('pointercancel', e => {
+    if (!waveDrag) return;
+    waveDrag = false;
+    if (waveWrap.hasPointerCapture(e.pointerId)) {
+        waveWrap.releasePointerCapture(e.pointerId);
+    }
+    finishScrub();
+});
+
+document.addEventListener('mouseup', () => {
+    if (tlDrag || waveDrag) {
+        tlDrag = false;
+        waveDrag = false;
+        finishScrub();
+    }
+});
+
+tlWrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoomAt(e.clientX, tlWrap.getBoundingClientRect(), e.deltaY);
+}, { passive: false });
+
+waveWrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoomAt(e.clientX, waveWrap.getBoundingClientRect(), e.deltaY);
+}, { passive: false });
+
+window.addEventListener('resize', () => {
+    resizeWaveCanvas();
+    drawWaveform();
+});
+
+/* ── Segment list ──────────────────────────────────────────── */
+function renderSegList() {
+    if (config.mode === 'broll') {
+        for (let k = 0; k < segments.length; k++) {
+            validateBroll(k);
+        }
+    }
+
+    segList.innerHTML = '';
+    if (segments.length === 0) {
+        segList.innerHTML = '<div id="empty-state"><p>No segments yet.</p><p>Click <b>+</b> to add one.</p></div>';
+        return;
+    }
+    segments.forEach((seg, i) => {
+        const item = document.createElement('div');
+        item.className = 'seg-item' + (i === activeIdx ? ' active' : '');
+        item.dataset.idx = i;
+
+        /* ── Main row ──────────────────────────────────── */
+        const row = document.createElement('div');
+        row.className = 'seg-row';
+
+        // Drag handle
+        const handle = document.createElement('span');
+        handle.className = 'drag-handle';
+        handle.textContent = '☰';
+        handle.draggable = true;
+        handle.addEventListener('dragstart', e => {
+            dragFrom = i;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(i));
+            requestAnimationFrame(() => item.style.opacity = '0.4');
+        });
+        handle.addEventListener('dragend', () => {
+            item.style.opacity = '1';
+            dragFrom = -1;
+            segList.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        });
+
+        // Drop zone on item
+        item.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; item.classList.add('drag-over'); });
+        item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+        item.addEventListener('drop', e => {
+            e.preventDefault();
+            item.classList.remove('drag-over');
+            const from = dragFrom, to = i;
+            if (from >= 0 && from !== to) {
+                const [moved] = segments.splice(from, 1);
+                segments.splice(to, 0, moved);
+                if (activeIdx === from) activeIdx = to;
+                else if (from < activeIdx && to >= activeIdx) activeIdx--;
+                else if (from > activeIdx && to <= activeIdx) activeIdx++;
+                renderSegList(); renderTlSegs(); scheduleSave();
+            }
+        });
+
+        // Color dot
+        const dot = document.createElement('span');
+        dot.className = 'seg-dot';
+        dot.style.background = color(i);
+
+        // Name input
+        const nameIn = document.createElement('input');
+        nameIn.className = 'seg-name';
+        nameIn.type = 'text';
+        nameIn.value = seg.name || `Segment ${i + 1}`;
+        nameIn.addEventListener('input', () => { seg.name = nameIn.value; scheduleSave(); });
+        nameIn.addEventListener('focus', () => { activeIdx = i; renderTlSegs(); });
+
+        // Times
+        const times = document.createElement('span');
+        times.className = 'seg-times';
+        const mkTime = (val, jumpTo) => {
+            const sp = document.createElement('span');
+            sp.className = 'time-val';
+            sp.textContent = fmt(val);
+            sp.title = 'Click to jump';
+            sp.addEventListener('click', () => { if (val != null) video.currentTime = val; });
+            return sp;
+        };
+        times.appendChild(mkTime(seg.start));
+        times.appendChild(document.createTextNode(' → '));
+        times.appendChild(mkTime(seg.end));
+
+        // Duration
+        const durEl = document.createElement('span');
+        durEl.className = 'seg-dur';
+        if (seg.start != null && seg.end != null) durEl.textContent = `(${dur(seg).toFixed(3)}s)`;
+
+        // Remove button
+        const rmBtn = document.createElement('button');
+        rmBtn.className = 'rm-btn';
+        rmBtn.textContent = '−';
+        rmBtn.title = 'Remove segment';
+        rmBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            segments.splice(i, 1);
+            if (activeIdx >= segments.length) activeIdx = segments.length - 1;
+            renderSegList(); renderTlSegs(); scheduleSave();
+        });
+
+        row.append(handle, dot, nameIn, times, durEl, rmBtn);
+        item.appendChild(row);
+
+        /* ── Action buttons ────────────────────────────── */
+        const acts = document.createElement('div');
+        acts.className = 'seg-actions';
+
+        const mkBtn = (cls, text, fn) => {
+            const b = document.createElement('button');
+            b.className = 'abtn ' + cls;
+            b.textContent = text;
+            b.addEventListener('click', fn);
+            return b;
+        };
+
+        acts.appendChild(mkBtn('set-s', '◄ Set Start', () => {
+            seg.start = round3(video.currentTime);
+
+            // Restore classic behavior: in B-Roll, setting start also sets
+            // end to start + selected A-Roll max duration.
+            if (config.mode === 'broll') {
+                const maxDur = getBrollMaxDuration(seg);
+                if (maxDur != null) {
+                    seg.end = brollEndFromStart(seg.start, maxDur);
+                }
+            }
+
+            validateBroll(i);
+            renderSegList(); renderTlSegs(); scheduleSave();
+        }));
+        acts.appendChild(mkBtn('set-e', 'Set End ►', () => {
+            seg.end = round3(video.currentTime);
+            validateBroll(i);
+            renderSegList(); renderTlSegs(); scheduleSave();
+        }));
+        acts.appendChild(mkBtn('', '↗ Jump', () => {
+            if (seg.start != null) video.currentTime = seg.start;
+        }));
+        acts.appendChild(mkBtn('', '▶ Play Seg', () => {
+            if (seg.start == null) return;
+            video.currentTime = seg.start;
+            video.play();
+            const onTime = () => {
+                if (seg.end != null && video.currentTime >= seg.end) {
+                    video.pause();
+                    video.removeEventListener('timeupdate', onTime);
+                }
+            };
+            video.addEventListener('timeupdate', onTime);
+        }));
+        item.appendChild(acts);
+
+        /* ── B-Roll: A-Roll segment selector ───────────── */
+        if (config.mode === 'broll' && arollSegments.length > 0) {
+            const arow = document.createElement('div');
+            arow.className = 'aroll-row';
+
+            const lbl = document.createElement('span');
+            lbl.textContent = 'A-Roll segment:';
+
+            const sel = document.createElement('select');
+            const none = document.createElement('option');
+            none.value = ''; none.textContent = '— Select —';
+            sel.appendChild(none);
+            arollSegments.forEach((as, ai) => {
+                const opt = document.createElement('option');
+                opt.value = ai;
+                opt.textContent = `${as.name} (${dur(as).toFixed(2)}s)`;
+                if (Number(seg.aroll_segment_index) === ai) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            sel.addEventListener('change', () => {
+                if (sel.value === '') {
+                    seg.aroll_segment_index = null;
+                    seg.aroll_segment_name = null;
+                    seg.max_duration = null;
+                } else {
+                    const ai = parseInt(sel.value);
+                    seg.aroll_segment_index = ai;
+                    seg.aroll_segment_name = arollSegments[ai]?.name || null;
+                }
+
+                // Keep end synced to selected A-Roll duration when start exists.
+                const maxDur = getBrollMaxDuration(seg);
+                if (maxDur != null && seg.start != null) {
+                    seg.end = brollEndFromStart(seg.start, maxDur);
+                }
+
+                validateBroll(i);
+                renderSegList(); scheduleSave();
+            });
+
+            arow.append(lbl, sel);
+
+            if (seg.max_duration != null) {
+                const md = document.createElement('span');
+                md.className = 'max-dur';
+                md.textContent = `Max: ${seg.max_duration.toFixed(3)}s`;
+                arow.appendChild(md);
+            }
+            if (seg.max_duration != null && seg.start != null && seg.end != null) {
+                const clipDur = dur(seg);
+                if (clipDur > seg.max_duration + 0.001) {
+                    const w = document.createElement('span');
+                    w.className = 'dur-warn';
+                    w.textContent = ` ⚠ ${clipDur.toFixed(3)}s exceeds max!`;
+                    arow.appendChild(w);
+                }
+            }
+            item.appendChild(arow);
+        }
+
+        /* ── Click to activate ─────────────────────────── */
+        item.addEventListener('click', e => {
+            if (['INPUT','BUTTON','SELECT'].includes(e.target.tagName)) return;
+            activeIdx = i;
+            renderSegList(); renderTlSegs();
+        });
+
+        segList.appendChild(item);
+    });
+
+    /* scroll active item into view */
+    const activeEl = segList.querySelector('.seg-item.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function validateBroll(i) {
+    if (config.mode !== 'broll') return;
+    const seg = segments[i];
+
+    const maxDur = getBrollMaxDuration(seg);
+    seg.max_duration = maxDur;
+
+    const ref = getArollSegmentByIndex(seg.aroll_segment_index);
+    seg.aroll_segment_name = ref ? (ref.seg.name || null) : null;
+
+    if (maxDur != null && seg.start != null && seg.end != null) {
+        if (seg.end - seg.start > maxDur) {
+            seg.end = brollEndFromStart(seg.start, maxDur);
+        }
+    }
+}
+
+/* ── Add segment ───────────────────────────────────────────── */
+addBtn.addEventListener('click', () => {
+    const s = { name: `Segment ${segments.length + 1}`, start: null, end: null };
+    if (config.mode === 'broll') {
+        s.aroll_segment_index = null;
+        s.aroll_segment_name = null;
+        s.max_duration = null;
+    }
+    segments.push(s);
+    activeIdx = segments.length - 1;
+    renderSegList(); renderTlSegs(); scheduleSave();
+});
+
+/* ── Keyboard shortcuts ────────────────────────────────────── */
+document.addEventListener('keydown', e => {
+    if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
+    switch (e.key) {
+        case 'ArrowLeft':  e.preventDefault(); stepFrame(-1); break;
+        case 'ArrowRight': e.preventDefault(); stepFrame(1);  break;
+        case ' ':          e.preventDefault(); togglePlay();   break;
+    }
+});
+
+/* ── Video events ──────────────────────────────────────────── */
+video.addEventListener('pause', () => { btnPlay.textContent = '▶'; });
+video.addEventListener('play',  () => { btnPlay.textContent = '⏸'; });
+document.getElementById('btn-play').addEventListener('click', togglePlay);
+document.getElementById('btn-prev').addEventListener('click', () => stepFrame(-1));
+document.getElementById('btn-next').addEventListener('click', () => stepFrame(1));
+saveBtn.addEventListener('click', () => { saveSegments(true); });
+
+projectSelect.addEventListener('change', async () => {
+    if (selectorSync) return;
+    await handleSelectionChange({ project: projectSelect.value, mode: modeSelect.value });
+});
+
+modeSelect.addEventListener('change', async () => {
+    if (selectorSync) return;
+    await handleSelectionChange({ project: projectSelect.value, mode: modeSelect.value });
+});
+
+videoSelect.addEventListener('change', async () => {
+    if (selectorSync) return;
+    const nextVideo = videoSelect.value;
+    if (!nextVideo) return;
+    try {
+        await updateSession({
+            project: projectSelect.value,
+            mode: modeSelect.value,
+            videoFilename: nextVideo,
+        });
+        await refreshSelectors(config);
+        await reloadForSession();
+    } catch (err) {
+        projInfo.textContent = `Session change failed: ${err.message}`;
+    }
+});
+
+window.addEventListener('pagehide', () => {
+    flushSaveOnClose();
+    notifyServer('/api/client-close');
+});
+window.addEventListener('beforeunload', () => {
+    flushSaveOnClose();
+    notifyServer('/api/client-close');
+});
+
+/* Smooth time update via rAF */
+(function loop() {
+    updateTime();
+    requestAnimationFrame(loop);
+})();
+
+/* ── Init ──────────────────────────────────────────────────── */
+async function init() {
+    await loadConfig();
+    if (config.restoredFromBackup) {
+        showRestoreHint();
+    }
+    await refreshSelectors(config);
+    await reloadForSession();
+    startServerLifecycle();
+
+    resizeWaveCanvas();
+    video.addEventListener('loadedmetadata', () => {
+        updateTime();
+        renderTlSegs();
+        buildWaveform();
+    });
+    if (video.duration) { updateTime(); renderTlSegs(); }
+    updateZoomLabel();
+}
+init();
+</script>
+</body>
+</html>
