@@ -215,6 +215,113 @@
         .max-dur { color: var(--warning); }
         .dur-warn { color: var(--accent); font-size: 10px; font-weight: bold; }
 
+        /* Partition modal */
+        #partition-modal {
+            display: none;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6); z-index: 100;
+            align-items: center; justify-content: center;
+        }
+        #partition-modal.open { display: flex; }
+        #partition-modal-content {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; padding: 20px; max-width: 600px; width: 90%;
+            max-height: 80vh; display: flex; flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        #partition-modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+        }
+        #partition-modal-header h3 { font-size: 16px; font-weight: 600; }
+        #partition-modal-close {
+            background: none; border: none; color: var(--text-dim);
+            font-size: 24px; cursor: pointer; padding: 0; line-height: 1;
+        }
+        #partition-modal-close:hover { color: var(--accent); }
+        
+        #partition-modal-body {
+            flex: 1; overflow-y: auto; margin-bottom: 16px;
+        }
+        
+        .partition-section h4 {
+            font-size: 13px; font-weight: 600; margin-top: 16px; margin-bottom: 8px;
+            color: var(--text-dim);
+        }
+        .partition-section:first-child h4 { margin-top: 0; }
+        
+        #partition-controls {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 12px; margin-bottom: 16px;
+        }
+        #partition-controls label {
+            display: block; font-size: 11px; color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+        #partition-time-input {
+            background: var(--surface); border: 1px solid var(--border);
+            color: var(--text); padding: 6px 8px; border-radius: 4px;
+            font-family: monospace; font-size: 12px; width: 100px;
+        }
+        #partition-time-input:focus { outline: none; border-color: var(--accent); }
+        #partition-add-btn {
+            margin-top: 8px;
+            width: 100%;
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+            box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.2);
+        }
+        #partition-add-btn:hover {
+            background: #ff5f79;
+            border-color: #ff5f79;
+        }
+        
+        .partition-list {
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .partition-item {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 4px; padding: 10px; display: flex;
+            align-items: center; justify-content: space-between;
+            font-size: 12px;
+        }
+        .partition-item-info {
+            flex: 1; display: flex; flex-direction: column; gap: 3px;
+        }
+        .partition-item-name {
+            font-weight: 600; color: var(--text);
+        }
+        .partition-item-time {
+            font-family: monospace; font-size: 11px; color: var(--text-dim);
+        }
+        .partition-item-del {
+            background: #c62828; border: none; color: #fff;
+            width: 22px; height: 22px; border-radius: 50%; font-size: 12px;
+            cursor: pointer; flex-shrink: 0; display: flex;
+            align-items: center; justify-content: center; line-height: 1;
+        }
+        .partition-item-del:hover { background: #e53935; }
+        
+        #partition-modal-actions {
+            display: flex; gap: 8px; justify-content: flex-end;
+        }
+        .modal-btn {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 8px 16px; border-radius: 4px;
+            cursor: pointer; font-size: 12px; font-weight: 600;
+        }
+        .modal-btn:hover { border-color: var(--accent); }
+        .modal-btn.primary {
+            background: var(--success); border-color: var(--success);
+            color: #fff;
+        }
+        .modal-btn.primary:hover { background: #66BB6A; }
+        .modal-btn.danger {
+            background: #c62828; border-color: #c62828; color: #fff;
+        }
+        .modal-btn.danger:hover { background: #e53935; }
+
         #empty-state { text-align: center; padding: 30px; color: var(--text-dim); }
         #empty-state p { margin-bottom: 6px; font-size: 13px; }
     </style>
@@ -270,6 +377,34 @@
         <div id="segment-list"></div>
     </div>
 
+    <!-- Partition Modal -->
+    <div id="partition-modal">
+        <div id="partition-modal-content">
+            <div id="partition-modal-header">
+                <h3>Select Partition Times</h3>
+                <button id="partition-modal-close" title="Close">×</button>
+            </div>
+            <div id="partition-modal-body">
+                <div class="partition-section">
+                    <h4>Partition Times</h4>
+                    <div id="partition-list" class="partition-list"></div>
+                </div>
+                <div class="partition-section">
+                    <h4>Add New Partition at Current Time</h4>
+                    <div id="partition-controls">
+                        <label>Time (seconds):</label>
+                        <input type="text" id="partition-time-input" placeholder="14.000">
+                        <button id="partition-add-btn" class="modal-btn">Add Partition</button>
+                    </div>
+                </div>
+            </div>
+            <div id="partition-modal-actions">
+                <button id="partition-revert-btn" class="modal-btn danger">Revert to Original</button>
+                <button id="partition-cancel-btn" class="modal-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
 <script>
 /* ================================================================
    STATE
@@ -286,6 +421,14 @@ let timelineCenterTime = 0;
 let selectorSync = false;
 let heartbeatTimer = null;
 let pingTimer = null;
+const STRICT_UNIQUE_AROLL_BINDING = true;
+const BROLL_FORMAT_OPTIONS = [
+    'A-Roll Only',    
+    'B-Roll Only',
+    'B-Roll Main, A-Roll Bubble',
+    'Half-And-Half Split',
+];
+const DEFAULT_BROLL_FORMAT = 'Half-And-Half Split';
 
 const COLORS = [
     '#4CAF50','#2196F3','#FF9800','#E91E63','#9C27B0',
@@ -329,18 +472,137 @@ function dur(seg) {
 }
 function round3(t) { return Math.round(t * 1000) / 1000; }
 
-function getArollSegmentByIndex(index) {
-    const idx = Number(index);
-    if (!Number.isInteger(idx)) return null;
-    if (idx < 0 || idx >= arollSegments.length) return null;
-    return { idx, seg: arollSegments[idx] };
+function normalizeBrollFormat(value) {
+    return BROLL_FORMAT_OPTIONS.includes(value) ? value : DEFAULT_BROLL_FORMAT;
+}
+
+function arollTargetKey(segmentIndex, partitionIndex) {
+    return `${segmentIndex}:${partitionIndex}`;
+}
+
+function getArollTargets() {
+    const targets = [];
+    arollSegments.forEach((seg, si) => {
+        const parts = Array.isArray(seg.partitions) ? seg.partitions : [];
+        if (parts.length > 0) {
+            parts.forEach((part, pi) => {
+                const pName = part.name || `${seg.name || `Segment ${si + 1}`} - Part ${String.fromCharCode(65 + pi)}`;
+                targets.push({
+                    key: arollTargetKey(si, pi),
+                    segmentIndex: si,
+                    partitionIndex: pi,
+                    name: pName,
+                    start: part.start,
+                    end: part.end,
+                    maxDuration: round3(dur(part)),
+                });
+            });
+        } else {
+            targets.push({
+                key: arollTargetKey(si, 0),
+                segmentIndex: si,
+                partitionIndex: 0,
+                name: seg.name || `Segment ${si + 1}`,
+                start: seg.start,
+                end: seg.end,
+                maxDuration: round3(dur(seg)),
+            });
+        }
+    });
+    return targets;
+}
+
+function getBrollTargetFromSeg(seg) {
+    const si = Number(seg.aroll_segment_index);
+    const pi = Number(seg.aroll_partition_index ?? 0);
+    if (!Number.isInteger(si) || si < 0 || si >= arollSegments.length) return null;
+    if (!Number.isInteger(pi) || pi < 0) return null;
+    return { segmentIndex: si, partitionIndex: pi, key: arollTargetKey(si, pi) };
+}
+
+function findArollTargetByKey(key) {
+    return getArollTargets().find(t => t.key === key) || null;
+}
+
+function defaultArollTargetForBrollPosition(position) {
+    const targets = getArollTargets();
+    if (!targets.length) return null;
+    return targets[position % targets.length];
+}
+
+function chooseUniqueArollTarget(preferredKey, usedKeys, position) {
+    const targets = getArollTargets();
+    if (!targets.length) return null;
+
+    if (preferredKey && targets.some(t => t.key === preferredKey) && !usedKeys.has(preferredKey)) {
+        return targets.find(t => t.key === preferredKey) || null;
+    }
+
+    const byPos = defaultArollTargetForBrollPosition(position);
+    if (byPos && !usedKeys.has(byPos.key)) return byPos;
+
+    return targets.find(t => !usedKeys.has(t.key)) || null;
+}
+
+function ensureArollSegmentIndices() {
+    if (config.mode !== 'aroll') return;
+    segments.forEach((seg, i) => {
+        seg.aroll_segment_index = i;
+    });
+}
+
+function ensureBrollAssignments() {
+    if (config.mode !== 'broll') return;
+
+    const targets = getArollTargets();
+    if (!targets.length) {
+        segments.forEach(seg => {
+            seg.aroll_segment_index = null;
+            seg.aroll_partition_index = null;
+            seg.aroll_segment_name = null;
+            seg.max_duration = null;
+        });
+        return;
+    }
+
+    const used = new Set();
+
+    segments.forEach((seg, i) => {
+        let target;
+        const current = getBrollTargetFromSeg(seg);
+        const preferredKey = current ? current.key : null;
+
+        if (STRICT_UNIQUE_AROLL_BINDING) {
+            target = chooseUniqueArollTarget(preferredKey, used, i);
+        } else {
+            target = preferredKey ? findArollTargetByKey(preferredKey) : defaultArollTargetForBrollPosition(i);
+        }
+        seg.aroll_segment_index = target ? target.segmentIndex : null;
+        seg.aroll_partition_index = target ? target.partitionIndex : null;
+
+        if (target) {
+            used.add(target.key);
+        }
+
+        seg.aroll_segment_name = target ? (target.name || null) : null;
+        const maxDur = target ? target.maxDuration : null;
+        seg.max_duration = Number.isFinite(maxDur) ? maxDur : null;
+
+        if (seg.max_duration != null && seg.start != null && seg.end != null) {
+            if (seg.end - seg.start > seg.max_duration) {
+                seg.end = brollEndFromStart(seg.start, seg.max_duration);
+            }
+        }
+    });
 }
 
 function getBrollMaxDuration(seg) {
     if (config.mode !== 'broll') return null;
-    const ref = getArollSegmentByIndex(seg.aroll_segment_index);
+    const target = getBrollTargetFromSeg(seg);
+    if (!target) return null;
+    const ref = findArollTargetByKey(target.key);
     if (!ref) return null;
-    const maxDur = round3(dur(ref.seg));
+    const maxDur = ref.maxDuration;
     return Number.isFinite(maxDur) ? maxDur : null;
 }
 
@@ -348,6 +610,10 @@ function brollEndFromStart(start, maxDur) {
     const vidDur = Number(video.duration);
     const cap = Number.isFinite(vidDur) && vidDur > 0 ? vidDur : Infinity;
     return round3(Math.min(cap, start + maxDur));
+}
+
+function brollStartFromEnd(end, maxDur) {
+    return round3(Math.max(0, end - maxDur));
 }
 
 function getVisibleWindow() {
@@ -595,7 +861,15 @@ async function loadSegments() {
             } else {
                 seg.aroll_segment_index = null;
             }
+            if (seg.aroll_partition_index !== null && seg.aroll_partition_index !== undefined && seg.aroll_partition_index !== '') {
+                const pidx = Number(seg.aroll_partition_index);
+                seg.aroll_partition_index = Number.isInteger(pidx) ? pidx : 0;
+            } else {
+                seg.aroll_partition_index = 0;
+            }
+            seg.broll_format = normalizeBrollFormat(seg.broll_format);
             if (seg.aroll_segment_index == null) {
+                seg.aroll_partition_index = null;
                 seg.aroll_segment_name = null;
                 seg.max_duration = null;
             }
@@ -618,8 +892,10 @@ async function reloadForSession() {
     await loadSegments();
     if (config.mode === 'broll') {
         await loadArollSegments();
+        ensureBrollAssignments();
     } else {
         arollSegments = [];
+        ensureArollSegmentIndices();
     }
     renderSegList();
     renderTlSegs();
@@ -643,6 +919,8 @@ async function handleSelectionChange(nextBase) {
 }
 
 function segmentsPayload() {
+    ensureArollSegmentIndices();
+    ensureBrollAssignments();
     return {
         project: config.project,
         type: config.mode,
@@ -723,10 +1001,12 @@ function startServerLifecycle() {
 
 /* ── Video controls ────────────────────────────────────────── */
 function togglePlay() {
+    stopSegmentReplay();
     if (video.paused) { video.play(); } else { video.pause(); }
 }
 
 function stepFrame(dir) {
+    stopSegmentReplay();
     video.pause();
     const fps = config.fps || 30;
     video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + dir / fps));
@@ -785,7 +1065,7 @@ function renderTlSegs() {
         el.addEventListener('click', e => {
             e.stopPropagation();
             activeIdx = i;
-            video.currentTime = seg.start;
+            playSegmentPrecisely(seg);
             renderSegList();
             renderTlSegs();
         });
@@ -799,6 +1079,283 @@ let waveDrag = false;
 let scrubPendingTime = null;
 let lastScrubTime = null;
 let scrubSeeking = false;
+let segmentReplayState = null;
+
+function stopSegmentReplay() {
+    if (!segmentReplayState) return;
+    if (segmentReplayState.rafId != null) {
+        cancelAnimationFrame(segmentReplayState.rafId);
+    }
+    segmentReplayState = null;
+}
+
+function playSegmentPrecisely(seg) {
+    if (seg.start == null) return;
+
+    const start = round3(seg.start);
+    const hasEnd = seg.end != null;
+    const end = hasEnd ? round3(seg.end) : null;
+
+    stopSegmentReplay();
+    video.pause();
+
+    if (hasEnd && end <= start) {
+        video.currentTime = start;
+        updateTime();
+        return;
+    }
+
+    segmentReplayState = { end, rafId: null, started: false };
+    video.currentTime = start;
+
+    const beginPlayback = () => {
+        if (!segmentReplayState) return;
+        if (segmentReplayState.started) return;
+        segmentReplayState.started = true;
+        video.play().then(() => {
+            if (!segmentReplayState || segmentReplayState.end == null) return;
+
+            const tick = () => {
+                if (!segmentReplayState) return;
+                if (video.currentTime >= segmentReplayState.end) {
+                    video.pause();
+                    video.currentTime = segmentReplayState.end;
+                    updateTime();
+                    stopSegmentReplay();
+                    return;
+                }
+                segmentReplayState.rafId = requestAnimationFrame(tick);
+            };
+
+            segmentReplayState.rafId = requestAnimationFrame(tick);
+        }).catch(() => {
+            stopSegmentReplay();
+        });
+    };
+
+    const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        beginPlayback();
+    };
+
+    video.addEventListener('seeked', onSeeked, { once: true });
+
+    // Fallback in case seeked was already emitted synchronously.
+    requestAnimationFrame(() => {
+        if (segmentReplayState) beginPlayback();
+    });
+}
+
+/* ── Partition Modal Handling ──────────────────────────────── */
+let partitionModalState = null; // Tracks which segment is being partitioned
+
+function currentTimelineTimeForPartitionInput() {
+    return round3(currentDisplayTime());
+}
+
+function partitionLabel(baseName, idx) {
+    return `${baseName} - Part ${String.fromCharCode(65 + idx)}`;
+}
+
+function collectPartitionBoundaries(segment, partitions) {
+    if (!Array.isArray(partitions)) return [];
+    const out = [];
+    partitions.forEach((p) => {
+        if (p && Number.isFinite(Number(p.end))) {
+            const t = round3(Number(p.end));
+            if (t > segment.start && t < segment.end) out.push(t);
+        }
+    });
+    return Array.from(new Set(out)).sort((a, b) => a - b);
+}
+
+function buildPartitionsFromBoundaries(segment, baseName, boundaries) {
+    const sorted = Array.from(new Set(boundaries.map(b => round3(Number(b)))))
+        .filter(b => Number.isFinite(b) && b > segment.start && b < segment.end)
+        .sort((a, b) => a - b);
+
+    // No boundaries means the segment is not partitioned.
+    if (sorted.length === 0) {
+        return [];
+    }
+
+    const points = [round3(segment.start), ...sorted, round3(segment.end)];
+    const parts = [];
+    for (let i = 0; i < points.length - 1; i++) {
+        const s = points[i];
+        const e = points[i + 1];
+        if (e <= s) continue;
+        parts.push({
+            name: partitionLabel(baseName, i),
+            start: s,
+            end: e,
+        });
+    }
+    return parts;
+}
+
+async function persistPartitionDraft(showError = true) {
+    if (!partitionModalState) return false;
+
+    const { segmentIndex, workingPartitions } = partitionModalState;
+
+    try {
+        const response = await fetch('/api/partitions/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                aroll_segment_index: segmentIndex,
+                partitions: workingPartitions,
+            }),
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+            if (showError) {
+                alert(`Failed to save partitions: ${result.error || `HTTP ${response.status}`}`);
+            }
+            return false;
+        }
+
+        segments[segmentIndex].partitions = JSON.parse(JSON.stringify(workingPartitions));
+        renderSegList();
+        renderTlSegs();
+        scheduleSave();
+        return true;
+    } catch (err) {
+        if (showError) {
+            alert(`Error saving partitions: ${err.message}`);
+        }
+        return false;
+    }
+}
+
+function openPartitionModal(segmentIndex, segment) {
+    if (config.mode !== 'aroll') return;
+    
+    // Initialize modal state
+    partitionModalState = {
+        segmentIndex: segmentIndex,
+        originalSegment: JSON.parse(JSON.stringify(segment)),
+        workingPartitions: JSON.parse(JSON.stringify(segment.partitions || [])),
+        originalName: segment.name || `Segment ${segmentIndex + 1}`,
+    };
+    
+    // If no partitions yet, initialize with empty array
+    if (!Array.isArray(partitionModalState.workingPartitions)) {
+        partitionModalState.workingPartitions = [];
+    }
+    
+    renderPartitionModal();
+    document.getElementById('partition-modal').classList.add('open');
+    const timeInput = document.getElementById('partition-time-input');
+    timeInput.value = currentTimelineTimeForPartitionInput().toFixed(3);
+    timeInput.focus();
+}
+
+function closePartitionModal() {
+    partitionModalState = null;
+    const modal = document.getElementById('partition-modal');
+    modal.classList.remove('open');
+}
+
+function renderPartitionModal() {
+    if (!partitionModalState) return;
+    
+    const listEl = document.getElementById('partition-list');
+    listEl.innerHTML = '';
+    
+    const segment = partitionModalState.originalSegment;
+    const boundaries = collectPartitionBoundaries(segment, partitionModalState.workingPartitions);
+    
+    if (boundaries.length === 0) {
+        listEl.innerHTML = '<p style="font-size: 11px; color: var(--text-dim); margin: 8px 0;">No partition times yet.</p>';
+        return;
+    }
+    
+    boundaries.forEach((boundaryTime, idx) => {
+        const item = document.createElement('div');
+        item.className = 'partition-item';
+        
+        const info = document.createElement('div');
+        info.className = 'partition-item-info';
+        
+        const time = document.createElement('div');
+        time.className = 'partition-item-time';
+        time.textContent = `T${idx + 1}: ${fmt(boundaryTime)}`;
+        
+        info.appendChild(time);
+        
+        const delBtn = document.createElement('button');
+        delBtn.className = 'partition-item-del';
+        delBtn.textContent = '−';
+        delBtn.title = 'Delete partition';
+        delBtn.addEventListener('click', async () => {
+            const nextBoundaries = [...boundaries];
+            nextBoundaries.splice(idx, 1);
+            partitionModalState.workingPartitions = buildPartitionsFromBoundaries(
+                segment,
+                partitionModalState.originalName,
+                nextBoundaries
+            );
+            renderPartitionModal();
+            await persistPartitionDraft();
+        });
+        
+        item.appendChild(info);
+        item.appendChild(delBtn);
+        listEl.appendChild(item);
+    });
+}
+
+async function addPartitionAtTime(timeStr) {
+    if (!partitionModalState) return;
+
+    const raw = String(timeStr ?? '').trim();
+    const time = raw ? parseFloat(raw) : currentTimelineTimeForPartitionInput();
+    if (isNaN(time) || time < 0) {
+        alert('Invalid time value');
+        return;
+    }
+    
+    const segment = partitionModalState.originalSegment;
+    if (segment.start == null || segment.end == null) {
+        alert('This A-Roll segment does not have valid start/end bounds');
+        return;
+    }
+    if (time <= segment.start || time >= segment.end) {
+        alert(`Partition time must be between ${fmt(segment.start)} and ${fmt(segment.end)}`);
+        return;
+    }
+    
+    const boundaries = collectPartitionBoundaries(segment, partitionModalState.workingPartitions);
+    if (boundaries.some(b => Math.abs(b - time) < 0.001)) {
+        alert('A partition boundary near this time already exists');
+        return;
+    }
+
+    boundaries.push(round3(time));
+    partitionModalState.workingPartitions = buildPartitionsFromBoundaries(
+        segment,
+        partitionModalState.originalName,
+        boundaries
+    );
+    
+    // Clear input and re-render
+    document.getElementById('partition-time-input').value = '';
+    renderPartitionModal();
+    await persistPartitionDraft();
+}
+
+async function revertPartitions() {
+    if (!partitionModalState) return;
+
+    partitionModalState.workingPartitions = [];
+    const ok = await persistPartitionDraft();
+    if (ok) {
+        closePartitionModal();
+    }
+}
 
 function queueScrub(clientX, rect) {
     if ((video.duration || 0) <= 0) return;
@@ -829,6 +1386,7 @@ function onScrubSeeked() {
 video.addEventListener('seeked', onScrubSeeked);
 
 function finishScrub() {
+    stopSegmentReplay();
     scrubSeeking = false;
     scrubPendingTime = null;
     scrubDisplayTime = null;
@@ -929,9 +1487,12 @@ window.addEventListener('resize', () => {
 /* ── Segment list ──────────────────────────────────────────── */
 function renderSegList() {
     if (config.mode === 'broll') {
+        ensureBrollAssignments();
         for (let k = 0; k < segments.length; k++) {
             validateBroll(k);
         }
+    } else {
+        ensureArollSegmentIndices();
     }
 
     segList.innerHTML = '';
@@ -1003,7 +1564,11 @@ function renderSegList() {
             sp.className = 'time-val';
             sp.textContent = fmt(val);
             sp.title = 'Click to jump';
-            sp.addEventListener('click', () => { if (val != null) video.currentTime = val; });
+            sp.addEventListener('click', () => {
+                if (val == null) return;
+                stopSegmentReplay();
+                video.currentTime = val;
+            });
             return sp;
         };
         times.appendChild(mkTime(seg.start));
@@ -1059,24 +1624,35 @@ function renderSegList() {
         }));
         acts.appendChild(mkBtn('set-e', 'Set End ►', () => {
             seg.end = round3(video.currentTime);
+
+            // Symmetric B-Roll behavior: in B-Roll, setting end also sets
+            // start to end - selected A-Roll max duration.
+            if (config.mode === 'broll') {
+                const maxDur = getBrollMaxDuration(seg);
+                if (maxDur != null) {
+                    seg.start = brollStartFromEnd(seg.end, maxDur);
+                }
+            }
+
             validateBroll(i);
             renderSegList(); renderTlSegs(); scheduleSave();
         }));
         acts.appendChild(mkBtn('', '↗ Jump', () => {
-            if (seg.start != null) video.currentTime = seg.start;
+            if (seg.start == null) return;
+            stopSegmentReplay();
+            video.currentTime = seg.start;
         }));
         acts.appendChild(mkBtn('', '▶ Play Seg', () => {
-            if (seg.start == null) return;
-            video.currentTime = seg.start;
-            video.play();
-            const onTime = () => {
-                if (seg.end != null && video.currentTime >= seg.end) {
-                    video.pause();
-                    video.removeEventListener('timeupdate', onTime);
-                }
-            };
-            video.addEventListener('timeupdate', onTime);
+            playSegmentPrecisely(seg);
         }));
+        
+        /* ── A-Roll: Partition button ──────────────────── */
+        if (config.mode === 'aroll') {
+            acts.appendChild(mkBtn('', '⌥ Partition', () => {
+                openPartitionModal(i, seg);
+            }));
+        }
+        
         item.appendChild(acts);
 
         /* ── B-Roll: A-Roll segment selector ───────────── */
@@ -1085,29 +1661,48 @@ function renderSegList() {
             arow.className = 'aroll-row';
 
             const lbl = document.createElement('span');
-            lbl.textContent = 'A-Roll segment:';
+            lbl.textContent = 'A-Roll target:';
 
             const sel = document.createElement('select');
-            const none = document.createElement('option');
-            none.value = ''; none.textContent = '— Select —';
-            sel.appendChild(none);
-            arollSegments.forEach((as, ai) => {
+            const allTargets = getArollTargets();
+            const usedByOthers = new Set();
+            if (STRICT_UNIQUE_AROLL_BINDING) {
+                segments.forEach((other, oi) => {
+                    if (oi === i) return;
+                    const t = getBrollTargetFromSeg(other);
+                    if (t) usedByOthers.add(t.key);
+                });
+            }
+
+            const currentTarget = getBrollTargetFromSeg(seg);
+
+            allTargets.forEach((t) => {
                 const opt = document.createElement('option');
-                opt.value = ai;
-                opt.textContent = `${as.name} (${dur(as).toFixed(2)}s)`;
-                if (Number(seg.aroll_segment_index) === ai) opt.selected = true;
+                opt.value = t.key;
+                opt.textContent = `${t.name} (${(t.maxDuration || 0).toFixed(2)}s)`;
+                if (currentTarget && currentTarget.key === t.key) opt.selected = true;
+                if (STRICT_UNIQUE_AROLL_BINDING && usedByOthers.has(t.key)) {
+                    opt.disabled = true;
+                    opt.textContent = `${opt.textContent} (used)`;
+                }
                 sel.appendChild(opt);
             });
             sel.addEventListener('change', () => {
-                if (sel.value === '') {
-                    seg.aroll_segment_index = null;
-                    seg.aroll_segment_name = null;
-                    seg.max_duration = null;
-                } else {
-                    const ai = parseInt(sel.value);
-                    seg.aroll_segment_index = ai;
-                    seg.aroll_segment_name = arollSegments[ai]?.name || null;
+                let nextTarget = findArollTargetByKey(sel.value) || defaultArollTargetForBrollPosition(i);
+
+                if (STRICT_UNIQUE_AROLL_BINDING) {
+                    const usedByOthersNow = new Set();
+                    segments.forEach((other, oi) => {
+                        if (oi === i) return;
+                        const t = getBrollTargetFromSeg(other);
+                        if (t) usedByOthersNow.add(t.key);
+                    });
+                    nextTarget = chooseUniqueArollTarget(nextTarget ? nextTarget.key : null, usedByOthersNow, i);
                 }
+
+                seg.aroll_segment_index = nextTarget ? nextTarget.segmentIndex : null;
+                seg.aroll_partition_index = nextTarget ? nextTarget.partitionIndex : null;
+                seg.aroll_segment_name = nextTarget ? (nextTarget.name || null) : null;
 
                 // Keep end synced to selected A-Roll duration when start exists.
                 const maxDur = getBrollMaxDuration(seg);
@@ -1120,6 +1715,25 @@ function renderSegList() {
             });
 
             arow.append(lbl, sel);
+
+            const fmtLbl = document.createElement('span');
+            fmtLbl.textContent = 'Format:';
+
+            const fmtSel = document.createElement('select');
+            BROLL_FORMAT_OPTIONS.forEach(fmtOpt => {
+                const opt = document.createElement('option');
+                opt.value = fmtOpt;
+                opt.textContent = fmtOpt;
+                if (normalizeBrollFormat(seg.broll_format) === fmtOpt) {
+                    opt.selected = true;
+                }
+                fmtSel.appendChild(opt);
+            });
+            fmtSel.addEventListener('change', () => {
+                seg.broll_format = normalizeBrollFormat(fmtSel.value);
+                scheduleSave();
+            });
+            arow.append(fmtLbl, fmtSel);
 
             if (seg.max_duration != null) {
                 const md = document.createElement('span');
@@ -1135,6 +1749,13 @@ function renderSegList() {
                     w.textContent = ` ⚠ ${clipDur.toFixed(3)}s exceeds max!`;
                     arow.appendChild(w);
                 }
+            }
+
+            if (seg.aroll_segment_index == null || seg.aroll_partition_index == null) {
+                const w = document.createElement('span');
+                w.className = 'dur-warn';
+                w.textContent = ' No available unique A-Roll target';
+                arow.appendChild(w);
             }
             item.appendChild(arow);
         }
@@ -1158,11 +1779,37 @@ function validateBroll(i) {
     if (config.mode !== 'broll') return;
     const seg = segments[i];
 
+    if (!arollSegments.length) {
+        seg.aroll_segment_index = null;
+        seg.aroll_partition_index = null;
+        seg.aroll_segment_name = null;
+        seg.max_duration = null;
+        return;
+    }
+
+    if (STRICT_UNIQUE_AROLL_BINDING) {
+        const usedByOthers = new Set();
+        segments.forEach((other, oi) => {
+            if (oi === i) return;
+            const t = getBrollTargetFromSeg(other);
+            if (t) usedByOthers.add(t.key);
+        });
+        const current = getBrollTargetFromSeg(seg);
+        const chosen = chooseUniqueArollTarget(current ? current.key : null, usedByOthers, i);
+        seg.aroll_segment_index = chosen ? chosen.segmentIndex : null;
+        seg.aroll_partition_index = chosen ? chosen.partitionIndex : null;
+    } else if (!getBrollTargetFromSeg(seg)) {
+        const fallback = defaultArollTargetForBrollPosition(i);
+        seg.aroll_segment_index = fallback ? fallback.segmentIndex : null;
+        seg.aroll_partition_index = fallback ? fallback.partitionIndex : null;
+    }
+
     const maxDur = getBrollMaxDuration(seg);
     seg.max_duration = maxDur;
 
-    const ref = getArollSegmentByIndex(seg.aroll_segment_index);
-    seg.aroll_segment_name = ref ? (ref.seg.name || null) : null;
+    const target = getBrollTargetFromSeg(seg);
+    const ref = target ? findArollTargetByKey(target.key) : null;
+    seg.aroll_segment_name = ref ? (ref.name || null) : null;
 
     if (maxDur != null && seg.start != null && seg.end != null) {
         if (seg.end - seg.start > maxDur) {
@@ -1175,9 +1822,27 @@ function validateBroll(i) {
 addBtn.addEventListener('click', () => {
     const s = { name: `Segment ${segments.length + 1}`, start: null, end: null };
     if (config.mode === 'broll') {
-        s.aroll_segment_index = null;
-        s.aroll_segment_name = null;
-        s.max_duration = null;
+        s.broll_format = DEFAULT_BROLL_FORMAT;
+        if (STRICT_UNIQUE_AROLL_BINDING) {
+            const used = new Set();
+            segments.forEach(seg => {
+                const t = getBrollTargetFromSeg(seg);
+                if (t) used.add(t.key);
+            });
+            const target = chooseUniqueArollTarget(null, used, segments.length);
+            s.aroll_segment_index = target ? target.segmentIndex : null;
+            s.aroll_partition_index = target ? target.partitionIndex : null;
+            s.aroll_segment_name = target ? (target.name || null) : null;
+            s.max_duration = target ? target.maxDuration : null;
+        } else {
+            const target = defaultArollTargetForBrollPosition(segments.length);
+            s.aroll_segment_index = target ? target.segmentIndex : null;
+            s.aroll_partition_index = target ? target.partitionIndex : null;
+            s.aroll_segment_name = target ? (target.name || null) : null;
+            s.max_duration = target ? target.maxDuration : null;
+        }
+    } else {
+        s.aroll_segment_index = segments.length;
     }
     segments.push(s);
     activeIdx = segments.length - 1;
@@ -1195,12 +1860,42 @@ document.addEventListener('keydown', e => {
 });
 
 /* ── Video events ──────────────────────────────────────────── */
-video.addEventListener('pause', () => { btnPlay.textContent = '▶'; });
+video.addEventListener('pause', () => {
+    stopSegmentReplay();
+    btnPlay.textContent = '▶';
+});
 video.addEventListener('play',  () => { btnPlay.textContent = '⏸'; });
 document.getElementById('btn-play').addEventListener('click', togglePlay);
 document.getElementById('btn-prev').addEventListener('click', () => stepFrame(-1));
 document.getElementById('btn-next').addEventListener('click', () => stepFrame(1));
 saveBtn.addEventListener('click', () => { saveSegments(true); });
+
+/* ── Partition modal event listeners ──────────────────────── */
+document.getElementById('partition-modal-close').addEventListener('click', closePartitionModal);
+document.getElementById('partition-cancel-btn').addEventListener('click', closePartitionModal);
+document.getElementById('partition-revert-btn').addEventListener('click', revertPartitions);
+document.getElementById('partition-add-btn').addEventListener('click', () => {
+    const input = document.getElementById('partition-time-input');
+    const val = input.value.trim();
+    addPartitionAtTime(val || String(currentTimelineTimeForPartitionInput()));
+});
+document.getElementById('partition-time-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        const input = document.getElementById('partition-time-input');
+        const val = input.value.trim();
+        addPartitionAtTime(val || String(currentTimelineTimeForPartitionInput()));
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('partition-modal');
+        if (modal.classList.contains('open')) {
+            closePartitionModal();
+        }
+    }
+});
 
 projectSelect.addEventListener('change', async () => {
     if (selectorSync) return;

@@ -387,27 +387,110 @@ def select_best_takes_from_segments(
 
 
 # ─── Trimming ──────────────────────────────────────────────────────────────
-def trim_clip(src: Path, dst: Path, start: float, end: float, *, exact: bool = False) -> bool:
+def pick_best_audio_map(src: Path) -> str:
+    """Return ffmpeg map spec for the best audio stream in src.
+
+    Prefers higher bitrate, then higher channel count.
+    Falls back to the first audio stream if metadata is incomplete.
+    """
+    probe_cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=index,codec_type,bit_rate,channels",
+        "-of",
+        "json",
+        str(src),
+    ]
+
+    try:
+        probe = subprocess.run(probe_cmd, capture_output=True, text=True)
+        if probe.returncode != 0:
+            return "0:a:0?"
+
+        payload = json.loads(probe.stdout or "{}")
+        streams = payload.get("streams", []) if isinstance(payload, dict) else []
+        audio_streams = [s for s in streams if s.get("codec_type") == "audio"]
+        if not audio_streams:
+            return "0:a:0?"
+
+        def score(stream: dict) -> tuple[int, int]:
+            br = int(stream.get("bit_rate") or 0)
+            ch = int(stream.get("channels") or 0)
+            return (br, ch)
+
+        best = max(audio_streams, key=score)
+        idx = best.get("index")
+        if isinstance(idx, int):
+            return f"0:{idx}?"
+    except Exception:
+        pass
+
+    return "0:a:0?"
+
+
+def trim_clip(
+    src: Path,
+    dst: Path,
+    start: float,
+    end: float,
+    *,
+    exact: bool = False,
+    keep_audio: bool = True,
+) -> bool:
     if exact:
         s = max(0.0, start)
         dur = end - s
     else:
         s = max(0.0, start - TRIM_PAD_BEFORE)
         dur = (end + TRIM_PAD_AFTER) - s
+
+    if dur <= 0.0:
+        return False
+
     cmd = [
         "ffmpeg",
         "-y",
-        "-loglevel", "error",
-        "-ss", f"{s:.3f}",
+        "-loglevel",
+        "error",
         "-i", str(src),
+        "-ss",
+        f"{s:.3f}",
         "-t", f"{dur:.3f}",
+        "-map",
+        "0:v:0",
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        str(dst),
+        "-movflags",
+        "+faststart",
     ]
+
+    if keep_audio:
+        audio_map = pick_best_audio_map(src)
+        cmd.extend(
+            [
+                "-map",
+                audio_map,
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-disposition:a:0",
+                "default",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-shortest",
+            ]
+        )
+    else:
+        cmd.append("-an")
+
+    cmd.append(str(dst))
+
     return subprocess.run(cmd, capture_output=True).returncode == 0
 
 
@@ -418,8 +501,52 @@ def ui_segments_path(project_dir: Path, video_filename: str) -> Path:
     return project_dir / "video" / f"{stem}_segments.json"
 
 
+def flatten_aroll_with_partitions(aroll_segments: list) -> list[dict]:
+    """
+    Flatten A-Roll segments with partitions into logical segments.
+    
+    Returns a list of dicts with:
+    {
+        "segment_index": original segment index,
+        "partition_index": partition index (0 if no partitions),
+        "name": partition name,
+        "start": start time,
+        "end": end time,
+    }
+    
+    If a segment has partitions, yields each partition as a logical segment.
+    If a segment has no partitions (empty partitions list), yields the segment itself.
+    """
+    logical = []
+    for seg_idx, seg in enumerate(aroll_segments):
+        partitions = seg.get("partitions", [])
+        if partitions and isinstance(partitions, list) and len(partitions) > 0:
+            # Segment has partitions; yield each one as a logical segment
+            for part_idx, part in enumerate(partitions):
+                logical.append({
+                    "segment_index": seg_idx,
+                    "partition_index": part_idx,
+                    "name": part.get("name", f"Part {chr(65 + part_idx)}"),
+                    "start": part.get("start"),
+                    "end": part.get("end"),
+                })
+        else:
+            # No partitions; segment is atomic
+            logical.append({
+                "segment_index": seg_idx,
+                "partition_index": 0,
+                "name": seg.get("name", f"Segment {seg_idx + 1}"),
+                "start": seg.get("start"),
+                "end": seg.get("end"),
+            })
+    return logical
+
+
 def trim_from_ui_segments(proj: Path) -> bool:
     """Load UI segment backup files and trim A-Roll + all B-Roll videos.
+
+    Handles partitions in A-Roll segments by flattening them into logical
+    segments before trimming. Each partition becomes a separate output file.
 
     Returns True if UI segments were found and processed, False otherwise.
     """
@@ -442,20 +569,28 @@ def trim_from_ui_segments(proj: Path) -> bool:
     out_dir = proj / "video" / "trimmed"
     out_dir.mkdir(exist_ok=True)
 
+    # ── Flatten partitions into logical segments ─────────────────────────
+    logical_segments = flatten_aroll_with_partitions(aroll_segments)
+
     # ── Trim A-Roll ──────────────────────────────────────────────────────
     print(f"\n{'═' * 60}")
-    print(f"  A-Roll: {len(aroll_segments)} segments (from UI backup)")
+    print(f"  A-Roll: {len(aroll_segments)} segments ({len(logical_segments)} with partitions expanded)")
     print(f"{'═' * 60}\n")
 
     aroll_ok = 0
-    for i, seg in enumerate(aroll_segments):
-        line_num = i + 1
-        start = seg.get("start")
-        end = seg.get("end")
+    for logical_seg in logical_segments:
+        seg_idx = logical_seg["segment_index"]
+        part_idx = logical_seg["partition_index"]
+        start = logical_seg.get("start")
+        end = logical_seg.get("end")
+        
         if start is None or end is None:
-            print(f"  line{line_num}-1.mp4 … skipped (no start/end)")
+            name = logical_seg.get("name", "Unnamed")
+            print(f"  line{seg_idx + 1}-{part_idx + 1}.mp4 [{name}] … skipped (no start/end)")
             continue
-        fname = f"line{line_num}-1.mp4"
+        
+        # Output file naming: line{segment+1}-{partition+1}.mp4
+        fname = f"line{seg_idx + 1}-{part_idx + 1}.mp4"
         dst = out_dir / fname
         dur = end - start
         print(f"  {fname}  [{start:.3f}s → {end:.3f}s]  ({dur:.3f}s) …", end=" ", flush=True)
@@ -465,7 +600,7 @@ def trim_from_ui_segments(proj: Path) -> bool:
         else:
             print("✗ FAILED")
 
-    print(f"\n✓ A-Roll: {aroll_ok}/{len(aroll_segments)} clips trimmed")
+    print(f"\n✓ A-Roll: {aroll_ok}/{len(logical_segments)} clips trimmed")
 
     # ── Trim B-Roll ──────────────────────────────────────────────────────
     broll_files = sorted(proj.glob("video/*_segments.json"))
@@ -498,16 +633,22 @@ def trim_from_ui_segments(proj: Path) -> bool:
             end = seg.get("end")
             if start is None or end is None:
                 continue
+            
             aroll_idx = seg.get("aroll_segment_index")
+            aroll_part_idx = seg.get("aroll_partition_index", 0)
+            
             if aroll_idx is not None and 0 <= aroll_idx < len(aroll_segments):
+                # Reference to A-Roll segment (with partition support)
                 line_ref = aroll_idx + 1
-                fname = f"{broll_stem}_line{line_ref}.mp4"
+                part_ref = aroll_part_idx + 1
+                fname = f"{broll_stem}_line{line_ref}-{part_ref}.mp4"
             else:
                 fname = f"{broll_stem}_seg{j + 1}.mp4"
+            
             dst = out_dir / fname
             dur = end - start
             print(f"  {fname}  [{start:.3f}s → {end:.3f}s]  ({dur:.3f}s) …", end=" ", flush=True)
-            if trim_clip(broll_video, dst, start, end, exact=True):
+            if trim_clip(broll_video, dst, start, end, exact=True, keep_audio=False):
                 print("✓")
                 broll_ok += 1
             else:

@@ -1,5 +1,10 @@
 .DS_Store
 
+# Python bytecode/cache (anywhere in repo)
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Ignore media files outside assets/
 *.webm
 *.mp4

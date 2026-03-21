@@ -36,6 +36,273 @@ def waveform_path(project_dir: Path, video_filename: str) -> Path:
     return project_dir / "video" / f"{stem}_waveform.json"
 
 
+# ─── Partition and Normalization Helpers ─────────────────────────────────────
+def partition_index_from_time(segment: dict, time: float) -> int:
+    """
+    Find which partition a given time overlaps with.
+    Returns partition index (0-based), or 0 if no partitions exist.
+    Returns -1 if time is outside segment bounds.
+    """
+    partitions = segment.get("partitions", [])
+    if not partitions:
+        return 0
+    for idx, part in enumerate(partitions):
+        if part.get("start") is not None and part.get("end") is not None:
+            if part["start"] <= time < part["end"]:
+                return idx
+    return -1
+
+
+def normalize_aroll_json(data: dict) -> dict:
+    """
+    Ensure A-Roll JSON has partitions field on all segments.
+    Backfill missing fields for backward compatibility.
+    """
+    if not isinstance(data, dict):
+        return {"project": "unknown", "type": "aroll", "video": "", "segments": []}
+    
+    segments = data.get("segments", [])
+    if not isinstance(segments, list):
+        segments = []
+    
+    normalized = []
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        normalized_seg = {
+            "name": seg.get("name", "Unnamed"),
+            "start": seg.get("start"),
+            "end": seg.get("end"),
+        }
+        # Ensure partitions field; if missing or invalid, initialize to empty
+        if "partitions" in seg and isinstance(seg["partitions"], list):
+            normalized_seg["partitions"] = seg["partitions"]
+        else:
+            normalized_seg["partitions"] = []
+        normalized.append(normalized_seg)
+    
+    return {
+        "project": data.get("project", "unknown"),
+        "type": "aroll",
+        "video": data.get("video", ""),
+        "segments": normalized,
+    }
+
+
+def normalize_broll_json(data: dict) -> dict:
+    """
+    Ensure B-Roll JSON has aroll_partition_index field on all segments.
+    Backfill missing fields for backward compatibility.
+    """
+    if not isinstance(data, dict):
+        return {"project": "unknown", "type": "broll", "video": "", "segments": []}
+    
+    segments = data.get("segments", [])
+    if not isinstance(segments, list):
+        segments = []
+    
+    normalized = []
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        normalized_seg = {
+            "name": seg.get("name", "Unnamed"),
+            "start": seg.get("start"),
+            "end": seg.get("end"),
+            "aroll_segment_index": seg.get("aroll_segment_index"),
+            "aroll_segment_name": seg.get("aroll_segment_name"),
+            "max_duration": seg.get("max_duration"),
+            "broll_format": seg.get("broll_format", "Half-And-Half Split"),
+        }
+        # Ensure aroll_partition_index field; defaults to 0 if missing
+        if "aroll_partition_index" in seg:
+            normalized_seg["aroll_partition_index"] = seg["aroll_partition_index"]
+        else:
+            normalized_seg["aroll_partition_index"] = 0
+        normalized.append(normalized_seg)
+    
+    return {
+        "project": data.get("project", "unknown"),
+        "type": "broll",
+        "video": data.get("video", ""),
+        "segments": normalized,
+    }
+
+
+def auto_assign_broll_to_partitions(aroll_seg: dict, broll_segments: list) -> None:
+    """
+    For a given A-Roll segment that just had partitions created/modified,
+    auto-assign any B-Roll segments that reference it to the correct partition
+    based on time overlap.
+    Updates broll_segments in place.
+    
+    Args:
+        aroll_seg: The A-Roll segment with partitions
+        broll_segments: List of all B-Roll segments (will be modified)
+    """
+    aroll_idx = None
+    for i, seg in enumerate(aroll_seg.get("_segments_list", [])):
+        if seg is aroll_seg:
+            aroll_idx = i
+            break
+    
+    if aroll_idx is None:
+        return
+    
+    partitions = aroll_seg.get("partitions", [])
+    if not partitions:
+        # No partitions, all B-Roll should use partition_index 0
+        for bseg in broll_segments:
+            if bseg.get("aroll_segment_index") == aroll_idx:
+                bseg["aroll_partition_index"] = 0
+        return
+    
+    # For each B-Roll segment, find which partition its time overlaps with
+    for bseg in broll_segments:
+        if bseg.get("aroll_segment_index") != aroll_idx:
+            continue
+        
+        bseg_start = bseg.get("start")
+        if bseg_start is None:
+            bseg["aroll_partition_index"] = 0
+            continue
+        
+        best_partition = 0
+        for pidx, part in enumerate(partitions):
+            part_start = part.get("start")
+            part_end = part.get("end")
+            if part_start is not None and part_end is not None:
+                if part_start <= bseg_start < part_end:
+                    best_partition = pidx
+                    break
+        
+        bseg["aroll_partition_index"] = best_partition
+        
+        # Update max_duration to partition duration
+        partition = partitions[best_partition]
+        part_start = partition.get("start")
+        part_end = partition.get("end")
+        if part_start is not None and part_end is not None:
+            bseg["max_duration"] = round(part_end - part_start, 3)
+
+
+def _strip_part_suffix(name: str) -> str:
+    return re.sub(r"\s+-\s+Part\s+[A-Z]+$", "", str(name or "")).strip() or "Segment"
+
+
+def split_broll_segments_for_aroll_partitions(
+    aroll_seg: dict,
+    aroll_idx: int,
+    broll_segments: list[dict],
+) -> list[dict]:
+    """
+    Rebuild B-Roll entries linked to one A-Roll segment so there is exactly one
+    B-Roll entry per A-Roll partition.
+
+    Behavior:
+    - If no linked B-Roll entries exist, returns original list unchanged.
+    - If linked entries exist, they are consolidated into one source range
+      (min start, max end), then split at A-Roll partition boundaries.
+    - If A-Roll has no partitions, keeps one linked B-Roll entry with
+      partition_index = 0.
+    """
+    linked_positions: list[int] = []
+    linked_segments: list[dict] = []
+
+    for pos, bseg in enumerate(broll_segments):
+        if bseg.get("aroll_segment_index") == aroll_idx:
+            linked_positions.append(pos)
+            linked_segments.append(bseg)
+
+    if not linked_segments:
+        return broll_segments
+
+    # Build a single source segment from existing linked entries so repeated
+    # repartitioning does not multiply entries.
+    starts = [float(s.get("start")) for s in linked_segments if s.get("start") is not None]
+    ends = [float(s.get("end")) for s in linked_segments if s.get("end") is not None]
+    if not starts or not ends:
+        return broll_segments
+
+    source = dict(min(linked_segments, key=lambda s: float(s.get("start", 10**9))))
+    source_start = round(min(starts), 3)
+    source_end = round(max(ends), 3)
+    if source_end <= source_start:
+        return broll_segments
+
+    base_name = _strip_part_suffix(source.get("name", "Segment"))
+    aroll_name = aroll_seg.get("name") or f"Segment {aroll_idx + 1}"
+    aroll_start = aroll_seg.get("start")
+    aroll_end = aroll_seg.get("end")
+    partitions = aroll_seg.get("partitions", []) if isinstance(aroll_seg.get("partitions"), list) else []
+
+    replacement: list[dict] = []
+
+    if not partitions:
+        merged = dict(source)
+        merged["name"] = base_name
+        merged["start"] = source_start
+        merged["end"] = source_end
+        merged["aroll_segment_index"] = aroll_idx
+        merged["aroll_partition_index"] = 0
+        merged["aroll_segment_name"] = aroll_name
+        if aroll_start is not None and aroll_end is not None:
+            merged["max_duration"] = round(float(aroll_end) - float(aroll_start), 3)
+        replacement.append(merged)
+    else:
+        if aroll_start is None:
+            aroll_start = partitions[0].get("start")
+        if aroll_end is None:
+            aroll_end = partitions[-1].get("end")
+
+        if aroll_start is None or aroll_end is None or float(aroll_end) <= float(aroll_start):
+            return broll_segments
+
+        for pidx, part in enumerate(partitions):
+            p_start = part.get("start")
+            p_end = part.get("end")
+            if p_start is None or p_end is None:
+                continue
+
+            # Map A-Roll partition offsets onto the selected B-Roll source span.
+            offset_start = float(p_start) - float(aroll_start)
+            offset_end = float(p_end) - float(aroll_start)
+            b_start = round(source_start + offset_start, 3)
+            b_end = round(source_start + offset_end, 3)
+
+            # Clamp to original source span to avoid overshooting.
+            b_start = max(source_start, min(source_end, b_start))
+            b_end = max(source_start, min(source_end, b_end))
+            if b_end <= b_start:
+                continue
+
+            seg = dict(source)
+            seg["name"] = f"{base_name} - Part {chr(65 + pidx)}"
+            seg["start"] = round(b_start, 3)
+            seg["end"] = round(b_end, 3)
+            seg["aroll_segment_index"] = aroll_idx
+            seg["aroll_partition_index"] = pidx
+            seg["aroll_segment_name"] = aroll_name
+            seg["max_duration"] = round(float(p_end) - float(p_start), 3)
+            replacement.append(seg)
+
+    if not replacement:
+        return broll_segments
+
+    first_pos = linked_positions[0]
+    result: list[dict] = []
+    inserted = False
+    for pos, bseg in enumerate(broll_segments):
+        if pos in linked_positions:
+            if not inserted and pos == first_pos:
+                result.extend(replacement)
+                inserted = True
+            continue
+        result.append(bseg)
+
+    return result
+
+
 def list_projects() -> list[str]:
     projects: list[str] = []
     for child in WORKSPACE.iterdir():
@@ -292,7 +559,16 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/segments":
             session = self._session()
             p = segments_path(WORKSPACE / session["project"], session["videoFilename"])
-            data = json.loads(p.read_text("utf-8")) if p.exists() else {"segments": []}
+            if p.exists():
+                data = json.loads(p.read_text("utf-8"))
+            else:
+                data = {"segments": []}
+            
+            # Normalize based on mode to ensure schema compatibility
+            if session["mode"] == "aroll":
+                data = normalize_aroll_json(data)
+            else:
+                data = normalize_broll_json(data)
             self._json(data)
         elif path == "/api/aroll-segments":
             p = segments_path(self._project_dir(), "aroll.mp4")
@@ -359,6 +635,8 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             p = segments_path(WORKSPACE / session["project"], session["videoFilename"])
             p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
             self._json({"ok": True})
+        elif req_path == "/api/partitions/update":
+            self._handle_partition_update()
         elif req_path == "/api/session":
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             data = json.loads(body)
@@ -401,6 +679,103 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             # Browser/tab closed mid-response.
             return
+
+    def _handle_partition_update(self):
+        """
+        Handle partition creation/update for an A-Roll segment.
+        
+        Request body:
+        {
+            "aroll_segment_index": 0,
+            "partitions": [
+                {"name": "Part A", "start": 13.056, "end": 14.0},
+                {"name": "Part B", "start": 14.0, "end": 15.023}
+            ]
+        }
+        
+        Response: {"ok": true, "updated_broll_segments": [...]}
+        """
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len)
+            req_data = json.loads(body)
+        except (ValueError, json.JSONDecodeError):
+            self._json({"ok": False, "error": "Invalid JSON"}, status=400)
+            return
+        
+        session = self._session()
+        project_dir = WORKSPACE / session["project"]
+        
+        # Load current A-Roll segments
+        aroll_path = segments_path(project_dir, "aroll.mp4")
+        try:
+            aroll_data = json.loads(aroll_path.read_text("utf-8")) if aroll_path.exists() else {"segments": []}
+            aroll_data = normalize_aroll_json(aroll_data)
+        except (OSError, json.JSONDecodeError):
+            self._json({"ok": False, "error": "Failed to read A-Roll JSON"}, status=500)
+            return
+        
+        seg_idx = req_data.get("aroll_segment_index")
+        if not isinstance(seg_idx, int) or seg_idx < 0 or seg_idx >= len(aroll_data["segments"]):
+            self._json({"ok": False, "error": "Invalid segment index"}, status=400)
+            return
+        
+        # Update the segment's partitions
+        partitions = req_data.get("partitions", [])
+        if not isinstance(partitions, list):
+            self._json({"ok": False, "error": "Partitions must be a list"}, status=400)
+            return
+        
+        aroll_data["segments"][seg_idx]["partitions"] = partitions
+        
+        # Save updated A-Roll
+        try:
+            aroll_path.write_text(json.dumps(aroll_data, ensure_ascii=False, indent=2), "utf-8")
+        except OSError as e:
+            self._json({"ok": False, "error": f"Failed to save A-Roll: {e}"}, status=500)
+            return
+        
+        updated_broll_segments: list[dict] = []
+
+        # Update all B-Roll segment files in this project so partitioning stays
+        # consistent regardless of which B-Roll clip is currently selected.
+        broll_seg_files = sorted(project_dir.glob("video/*_segments.json"))
+        broll_seg_files = [p for p in broll_seg_files if p.name != "aroll_segments.json"]
+
+        for broll_path in broll_seg_files:
+            try:
+                raw = json.loads(broll_path.read_text("utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            if raw.get("type") != "broll":
+                continue
+
+            broll_data = normalize_broll_json(raw)
+            segs = broll_data.get("segments", [])
+            if not isinstance(segs, list) or not segs:
+                continue
+
+            broll_data["segments"] = split_broll_segments_for_aroll_partitions(
+                aroll_data["segments"][seg_idx],
+                seg_idx,
+                segs,
+            )
+
+            try:
+                broll_path.write_text(json.dumps(broll_data, ensure_ascii=False, indent=2), "utf-8")
+            except OSError as e:
+                self._json({"ok": False, "error": f"Failed to save B-Roll: {e}"}, status=500)
+                return
+
+            # Keep response payload compatible with current UI expectations.
+            if broll_path.stem == "broll_main_segments":
+                updated_broll_segments = broll_data.get("segments", [])
+
+        self._json({
+            "ok": True,
+            "updated_broll_segments": updated_broll_segments,
+        })
 
     def _serve_file(self, filepath: Path, content_type: str):
         try:
