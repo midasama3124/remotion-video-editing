@@ -1,0 +1,27 @@
+{
+  "project": "sports_production",
+  "type": "broll",
+  "video": "broll_main.mp4",
+  "segments": [
+    {
+      "name": "Segment 1",
+      "start": 39.047,
+      "end": 41.014,
+      "aroll_segment_index": 0,
+      "aroll_segment_name": "Segment 1",
+      "max_duration": 1.967,
+      "broll_format": "Half-And-Half Split",
+      "aroll_partition_index": 0
+    },
+    {
+      "name": "Segment 2",
+      "start": 19.451,
+      "end": 22.286,
+      "aroll_segment_index": 1,
+      "aroll_segment_name": "Segment 2",
+      "max_duration": 2.835,
+      "broll_format": "Half-And-Half Split",
+      "aroll_partition_index": 0
+    }
+  ]
+}

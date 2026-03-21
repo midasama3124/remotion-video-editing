@@ -1,0 +1,21 @@
+{
+  "project": "sports_production",
+  "type": "aroll",
+  "video": "aroll.mp4",
+  "segments": [
+    {
+      "name": "Segment 1",
+      "start": 13.056,
+      "end": 15.023,
+      "partitions": [],
+      "aroll_segment_index": 0
+    },
+    {
+      "name": "Segment 2",
+      "start": 38.165,
+      "end": 41,
+      "partitions": [],
+      "aroll_segment_index": 1
+    }
+  ]
+}
