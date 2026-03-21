@@ -112,3 +112,22 @@ Before rendering, verify:
 - [ ] No audio pops or clicks at cut points
 - [ ] Fade in/out at video start and end
 - [ ] B-Roll audio is silenced unless intentionally included
+
+## Alternate Format: Audio in B-Roll Top / A-Roll Bottom Layout
+
+The visual placement changes, but core audio priority remains the same.
+
+### Mix Behavior
+
+- **A-Roll narration remains the anchor track** at full clarity
+- **Top B-Roll panel** stays muted by default (`volume={0}`)
+- Music and SFX timing should align with top-panel cut rhythm
+- If bottom A-Roll panel is visually static, keep using SFX sparingly to avoid over-styling
+
+### Practical Rule
+
+When both panels are visible simultaneously, do not duplicate spoken content with text and loud SFX at the same moment. Keep one focal cue at a time:
+
+1. narration,
+2. or SFX accent,
+3. or music build.

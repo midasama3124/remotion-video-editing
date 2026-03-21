@@ -159,3 +159,48 @@ const translateX = interpolate(frame, [0, durationInFrames], [0, -20]);
   startFrom={trimStartFrame}
 />
 ```
+
+## Alternate Format: B-Roll Top Panel
+
+In split-stack edits, B-Roll stays fixed in the **top half** while A-Roll occupies the bottom half.
+
+### Top Panel Spec
+
+| Property   | Value |
+| ---------- | ----- |
+| X          | 0     |
+| Y          | 0     |
+| Width      | 1080  |
+| Height     | 960   |
+
+### Implementation Example
+
+```tsx
+<div
+  style={{
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: 1080,
+    height: 960,
+    overflow: "hidden",
+  }}
+>
+  <OffthreadVideo
+    src={staticFile("video/broll1.mp4")}
+    startFrom={trimStartFrame}
+    volume={0}
+    style={{
+      width: "100%",
+      height: "100%",
+      objectFit: "cover",
+    }}
+  />
+</div>
+```
+
+### Usage Notes
+
+- Keep product details inside the visible top safe area
+- Avoid placing critical labels in the highest ~250px where Instagram UI can overlap
+- Continue normal B-Roll pacing and trimming rules; only the placement changes

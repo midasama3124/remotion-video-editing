@@ -126,3 +126,49 @@ When switching from Bubble to Standalone (or vice versa):
 - When in bubble mode, A-Roll audio continues as voiceover
 - Volume should remain consistent across mode switches
 - If background music is present, A-Roll audio takes priority (see `06_AUDIO.md`)
+
+## Alternate Format: A-Roll Bottom Panel
+
+In split-stack edits, A-Roll is no longer a circular bubble. It is pinned to the **bottom half** of the frame while B-Roll stays on top.
+
+### Bottom Panel Spec
+
+| Property   | Value |
+| ---------- | ----- |
+| X          | 0     |
+| Y          | 960   |
+| Width      | 1080  |
+| Height     | 960   |
+| Shape      | Rectangle (no circle crop) |
+
+### Implementation Example
+
+```tsx
+<div
+  style={{
+    position: "absolute",
+    left: 0,
+    top: 960,
+    width: 1080,
+    height: 960,
+    overflow: "hidden",
+    zIndex: 10,
+  }}
+>
+  <OffthreadVideo
+    src={staticFile("video/aroll.mp4")}
+    startFrom={trimStartFrame}
+    style={{
+      width: "100%",
+      height: "100%",
+      objectFit: "cover",
+    }}
+  />
+</div>
+```
+
+### Usage Notes
+
+- Keep the speaker's face roughly centered in the bottom panel
+- Avoid placing captions over the bottom unsafe zone; keep them near the panel boundary when possible
+- A-Roll audio behavior remains unchanged: narration continues continuously across all visual sections

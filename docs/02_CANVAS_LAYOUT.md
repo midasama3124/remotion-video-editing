@@ -59,6 +59,37 @@ When source footage is not vertical (9:16), use `assets/dark_bg1.mp4` as the bac
 4. **Text overlays** (hooks, captions, CTAs)
 5. **Sound effect visuals** (optional flashes, emphasis)
 
+## Alternate Layout: B-Roll Top + A-Roll Bottom
+
+Use this format when you want both tracks visible at the same time.
+
+### Vertical Split Zones (1080×1920)
+
+| Zone         | X        | Y          | Width | Height | Content |
+| ------------ | -------- | ---------- | ----- | ------ | ------- |
+| Top panel    | 0        | 0          | 1080  | 960    | B-Roll  |
+| Bottom panel | 0        | 960        | 1080  | 960    | A-Roll  |
+
+### Placement Rules
+
+- **B-Roll must stay in the top panel** (0-960px Y)
+- **A-Roll must stay in the bottom panel** (960-1920px Y)
+- Keep key faces/text away from the top unsafe area (~250px) and bottom unsafe area (~350px)
+- If needed, reduce panel height for protected text areas and keep a center gutter (8-24px)
+
+### Example Container Layout
+
+```tsx
+<AbsoluteFill>
+  <div style={{ position: "absolute", top: 0, left: 0, width: 1080, height: 960 }}>
+    <BRollTrack />
+  </div>
+  <div style={{ position: "absolute", top: 960, left: 0, width: 1080, height: 960 }}>
+    <ARollTrack />
+  </div>
+</AbsoluteFill>
+```
+
 ## Remotion Canvas Setup
 
 ```tsx

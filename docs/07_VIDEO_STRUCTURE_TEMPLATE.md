@@ -119,3 +119,48 @@ Before final render:
 - [ ] Total duration matches target (30-60s for Reels)
 - [ ] No black frames unintentionally present
 - [ ] Bubble A-Roll is visible and within safe zone
+
+## Alternate Structure: Split-Stack (B-Roll Top, A-Roll Bottom)
+
+Use this when you want both tracks visible throughout most of the video.
+
+### Track Layout
+
+| Track            | Position | Region          |
+| ---------------- | -------- | --------------- |
+| B-Roll Track     | Top      | x: 0-1080, y: 0-960 |
+| A-Roll Track     | Bottom   | x: 0-1080, y: 960-1920 |
+
+### Composition Skeleton
+
+```tsx
+const MainVideoSplitStack: React.FC = () => {
+  return (
+    <AbsoluteFill>
+      {/* Top half: B-Roll */}
+      <div style={{ position: "absolute", top: 0, left: 0, width: 1080, height: 960 }}>
+        <BRollTrack />
+      </div>
+
+      {/* Bottom half: A-Roll */}
+      <div style={{ position: "absolute", top: 960, left: 0, width: 1080, height: 960 }}>
+        <ARollTrack />
+      </div>
+
+      {/* Overlays + Audio */}
+      <TextOverlays />
+      <AudioMix />
+    </AbsoluteFill>
+  );
+};
+```
+
+### EDL Format Additions
+
+Add these fields per segment:
+
+```
+  LayoutMode: split-stack
+  TopVisual:  B-Roll (<file> @ <in>-<out>)
+  BottomVisual: A-Roll (<file> @ <in>-<out>)
+```

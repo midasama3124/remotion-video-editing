@@ -152,3 +152,41 @@ The pacing of transitions should match the audio rhythm:
 | Scale in          | 8-12               | 0.27-0.4       | High         |
 | Slide             | 6-10               | 0.2-0.33       | High         |
 | Emphasis flash    | 4-8                | 0.13-0.27      | High         |
+
+## Alternate Format: Transition Rules for Top/Bottom Layout
+
+When using **B-Roll top + A-Roll bottom**, transitions should usually affect only one panel at a time.
+
+### Panel-Specific Transition Strategy
+
+- Apply most cuts/flashes to the **top B-Roll panel**
+- Keep the **bottom A-Roll panel** stable unless the narration beat requires visual emphasis
+- For strong moments, use synchronized transitions on both panels for 4-8 frames
+
+### Split-Stack Cut Example
+
+```tsx
+<AbsoluteFill>
+  <Sequence from={0} durationInFrames={topDuration}>
+    <TopBRollTrack />
+  </Sequence>
+
+  <Sequence from={0} durationInFrames={bottomDuration}>
+    <BottomARollTrack />
+  </Sequence>
+
+  {/* Optional top-only flash accent */}
+  <Sequence from={cutPoint - 2} durationInFrames={4}>
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: 1080,
+        height: 960,
+        backgroundColor: "black",
+      }}
+    />
+  </Sequence>
+</AbsoluteFill>
+```

@@ -51,7 +51,7 @@ remotion_videos/
 3. Place the A-Roll file as `video/aroll.mp4`
 4. Place B-Roll files as `video/broll1.mp4`, `video/broll2.mp4`, etc.
 5. Place the reference edit as `video/reference.mov` (or `.mp4`)
-6. Create a `VIDEO_PLAN.md` using the template in `docs/07_VIDEO_PLAN_TEMPLATE.md`
+6. Create a `VIDEO_PLAN.md` using the template in `docs/07_VIDEO_STRUCTURE_TEMPLATE.md`
 
 ## Asset Priority
 
@@ -61,3 +61,16 @@ Shared assets in `assets/` should be used as much as possible to maintain visual
 - **Sound effects**: Pull from `assets/sound_effects/` before sourcing externally
 - **Soundtrack**: Use tracks from `assets/soundtrack/` when appropriate
 - **Safe zone**: Always validate layouts against `instagram_safe_zone.png`
+
+## Supported Visual Formats
+
+Projects can be edited in either of these visual formats:
+
+1. **Standard format**: B-Roll as the main visual layer, with optional A-Roll bubble/full-frame switches
+2. **Split-stack format**: **B-Roll fixed on top** and **A-Roll fixed at bottom** of the final 1080×1920 frame
+
+For split-stack projects, keep this naming and planning convention in the EDL/notes:
+
+- `layoutMode: split-stack`
+- `topTrack: broll`
+- `bottomTrack: aroll`
