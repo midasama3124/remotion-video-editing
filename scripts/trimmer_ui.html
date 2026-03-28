@@ -58,6 +58,49 @@
             font-size: 12px;
         }
         #save-btn:hover { border-color: var(--success); color: var(--success); }
+        #remotion-controls {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 8px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        #remotion-generate-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            width: fit-content;
+        }
+        #remotion-generate-btn:hover:not(:disabled) {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        #remotion-generate-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+        #remotion-status {
+            font-size: 12px;
+            color: var(--text-dim);
+            min-height: 16px;
+        }
+        #remotion-status.error { color: var(--accent); }
+        #remotion-status.success { color: var(--success); }
+        #remotion-status a {
+            color: #8fd3ff;
+            text-decoration: underline;
+        }
+        #remotion-note {
+            color: var(--text-dim);
+            font-size: 11px;
+            font-style: italic;
+        }
 
         /* ── Video player ─────────────────────────────────── */
         #player-container {
@@ -369,6 +412,12 @@
         </div>
     </div>
 
+    <div id="remotion-controls">
+        <button id="remotion-generate-btn" title="Generate Remotion components and open Studio">Generate &amp; Open Studio</button>
+        <div id="remotion-status"></div>
+        <div id="remotion-note">Re-generating resets Studio tweaks - run this before making final adjustments in Studio.</div>
+    </div>
+
     <div id="segments-section">
         <div id="segments-header">
             <h2 id="seg-title">Segments</h2>
@@ -458,6 +507,8 @@ const zoomLevel     = document.getElementById('zoom-level');
 const projectSelect = document.getElementById('project-select');
 const modeSelect    = document.getElementById('mode-select');
 const videoSelect   = document.getElementById('video-select');
+const remotionGenerateBtn = document.getElementById('remotion-generate-btn');
+const remotionStatus = document.getElementById('remotion-status');
 
 /* ── Helpers ───────────────────────────────────────────────── */
 function fmt(s) {
@@ -834,6 +885,48 @@ async function updateSession(next) {
     }
     config = data.session;
     syncHeader();
+}
+
+function setRemotionStatus(message, kind = 'info') {
+    remotionStatus.classList.remove('error', 'success');
+    if (kind === 'error') remotionStatus.classList.add('error');
+    if (kind === 'success') remotionStatus.classList.add('success');
+    remotionStatus.innerHTML = message;
+}
+
+async function generateAndOpenStudio() {
+    if (!config.project) {
+        setRemotionStatus('No active project selected.', 'error');
+        return;
+    }
+
+    remotionGenerateBtn.disabled = true;
+    setRemotionStatus('Generating Remotion components...');
+
+    try {
+        const response = await fetch('/api/generate-remotion', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ project: config.project }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+            const msg = payload.error || `Generation failed (HTTP ${response.status})`;
+            setRemotionStatus(msg, 'error');
+            return;
+        }
+
+        const count = Number(payload.segment_count) || 0;
+        setRemotionStatus(
+            `✓ ${count} segments generated. Opening Remotion Studio... <a href="http://localhost:3000" target="_blank" rel="noopener noreferrer">Open Studio</a>`,
+            'success'
+        );
+    } catch (err) {
+        setRemotionStatus(`Failed to generate components: ${err.message}`, 'error');
+    } finally {
+        remotionGenerateBtn.disabled = false;
+    }
 }
 
 function setVideoSource() {
@@ -1869,6 +1962,7 @@ document.getElementById('btn-play').addEventListener('click', togglePlay);
 document.getElementById('btn-prev').addEventListener('click', () => stepFrame(-1));
 document.getElementById('btn-next').addEventListener('click', () => stepFrame(1));
 saveBtn.addEventListener('click', () => { saveSegments(true); });
+remotionGenerateBtn.addEventListener('click', () => { generateAndOpenStudio(); });
 
 /* ── Partition modal event listeners ──────────────────────── */
 document.getElementById('partition-modal-close').addEventListener('click', closePartitionModal);

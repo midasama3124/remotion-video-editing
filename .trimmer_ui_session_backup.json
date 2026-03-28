@@ -1,6 +1,6 @@
 {
   "project": "sports_production",
-  "mode": "aroll",
-  "videoFilename": "aroll.mp4",
+  "mode": "broll",
+  "videoFilename": "broll_main.mp4",
   "fps": 30
 }

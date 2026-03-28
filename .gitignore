@@ -1,4 +1,6 @@
 .DS_Store
+.cache/
+.remotion/
 
 # Python bytecode/cache (anywhere in repo)
 __pycache__/

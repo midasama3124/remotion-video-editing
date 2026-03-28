@@ -20,6 +20,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PORT = 8765
 SESSION_BACKUP = WORKSPACE / ".trimmer_ui_session_backup.json"
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mkv"}
+FPS = 30
+
+FORMAT_MAP = {
+    "Half-And-Half Split": "half_and_half",
+}
+FALLBACK_LAYOUT = "aroll_only"
 
 # Ensure .webm is registered
 mimetypes.add_type("video/webm", ".webm")
@@ -510,6 +516,350 @@ def build_waveform(video_path: Path, bars: int = 2400) -> dict:
     }
 
 
+def _as_float(value, field_name: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid numeric field '{field_name}'") from exc
+
+
+def _segment_label(index: int, segment: dict) -> str:
+    return f"Segment {index + 1} ({segment.get('name', 'Unnamed')})"
+
+
+def _ensure_preview_segment_clip(
+    project_root: Path,
+    project_name: str,
+    kind: str,
+    segment_index: int,
+    source_path: Path,
+    trim_start: float,
+    duration_sec: float,
+) -> str:
+    """
+    Build a small H.264 preview clip for one segment and return its public URL.
+
+    Using short, downscaled proxies keeps Remotion Studio responsive even when
+    source footage is very large or high-framerate.
+    """
+    public_dir = project_root / "remotion-src" / "public"
+    public_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_project = re.sub(r"[^a-zA-Z0-9_-]", "_", project_name.strip() or "project")
+    safe_kind = re.sub(r"[^a-zA-Z0-9_-]", "_", kind.strip() or "clip")
+    filename = f"{safe_project}_{safe_kind}_seg{segment_index:03d}.mp4"
+    target = public_dir / filename
+
+    if target.exists():
+        target.unlink()
+
+    trim_start = max(0.0, float(trim_start))
+    duration_sec = max(0.05, float(duration_sec))
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-nostdin",
+        "-v",
+        "error",
+        "-ss",
+        f"{trim_start:.6f}",
+        "-i",
+        str(source_path),
+        "-t",
+        f"{duration_sec:.6f}",
+        "-vf",
+        "scale='min(1920,iw)':-2:flags=lanczos,fps=30",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+    ]
+
+    # Preserve A-Roll audio for Studio preview timing and mix decisions.
+    if kind == "aroll":
+        cmd.extend([
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ac",
+            "2",
+        ])
+    else:
+        cmd.append("-an")
+
+    cmd.append(str(target))
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(
+            f"Failed to build preview clip {filename}: ffmpeg timed out"
+        ) from exc
+
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "ffmpeg failed").strip()
+        raise ValueError(f"Failed to build preview clip {filename}: {err}")
+
+    if not target.is_file() or target.stat().st_size <= 0:
+        raise ValueError(f"Failed to build preview clip {filename}: output file is empty")
+
+    return filename
+
+
+def _generate_segment_component(index: int, joined: dict) -> str:
+    if joined["layout"] == "half_and_half":
+        return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
+import React from "react";
+import {{ staticFile }} from "remotion";
+import {{ HalfAndHalf }} from "./layouts/HalfAndHalf";
+
+export const Segment{index}: React.FC<{{ splitRatio: number }}> = ({{ splitRatio }}) => (
+  <HalfAndHalf
+        arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
+        brollSrc={{staticFile({json.dumps(joined["broll_src"])})}}
+    arollTrimStart={{{joined["aroll_trim_start"]}}}
+    brollTrimStart={{{joined["broll_trim_start"]}}}
+    durationSec={{{joined["duration_sec"]}}}
+    splitRatio={{splitRatio}}
+    fps={{{FPS}}}
+  />
+);
+'''
+
+        return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
+import React from "react";
+import {{ staticFile }} from "remotion";
+import {{ ARollOnly }} from "./layouts/ARollOnly";
+
+export const Segment{index}: React.FC = () => (
+    <ARollOnly
+        arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
+        arollTrimStart={{{joined["aroll_trim_start"]}}}
+        durationSec={{{joined["duration_sec"]}}}
+        fps={{{FPS}}}
+    />
+);
+'''
+
+
+def _generate_composition_component(joined_segments: list[dict]) -> str:
+    lines = [
+        '// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.',
+        'import React from "react";',
+        'import { Sequence } from "remotion";',
+    ]
+
+    for idx in range(len(joined_segments)):
+        lines.append(f'import {{ Segment{idx} }} from "./Segment{idx}";')
+
+    lines.extend(
+        [
+            "",
+            f"export const TOTAL_DURATION_FRAMES = {sum(max(1, round(seg['duration_sec'] * FPS)) for seg in joined_segments)};",
+            "",
+            "type Props = {",
+            "  segments: Array<{ splitRatio: number }>;",
+            "};",
+            "",
+            "export const MyComposition: React.FC<Props> = ({ segments }) => (",
+            "  <>",
+        ]
+    )
+
+    cumulative_start_sec = 0.0
+    for idx, seg in enumerate(joined_segments):
+        from_frame = round(cumulative_start_sec * FPS)
+        duration_frames = round(seg["duration_sec"] * FPS)
+        if duration_frames <= 0:
+            duration_frames = 1
+
+        if from_frame == 0:
+            lines.append(f"    <Sequence durationInFrames={{{duration_frames}}}>")
+        else:
+            lines.append(f"    <Sequence from={{{from_frame}}} durationInFrames={{{duration_frames}}}>")
+        if seg["layout"] == "half_and_half":
+            lines.append(f"      <Segment{idx} splitRatio={{segments[{idx}].splitRatio}} />")
+        else:
+            lines.append(f"      <Segment{idx} />")
+        lines.append("    </Sequence>")
+        cumulative_start_sec += seg["duration_sec"]
+
+    lines.extend(["  </>", ");", ""])
+    return "\n".join(lines)
+
+
+def _write_input_props(output_dir: Path, segment_count: int) -> None:
+    props = {
+        "segments": [
+            {
+                "index": idx,
+                "splitRatio": 0.5,
+            }
+            for idx in range(segment_count)
+        ]
+    }
+    (output_dir / "inputProps.json").write_text(
+        json.dumps(props, ensure_ascii=False, indent=2),
+        "utf-8",
+    )
+
+
+def _write_generated_remotion_files(output_dir: Path, joined_segments: list[dict]) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for existing in output_dir.glob("Segment*.tsx"):
+        if re.match(r"^Segment\d+\.tsx$", existing.name):
+            existing.unlink()
+
+    for idx, seg in enumerate(joined_segments):
+        (output_dir / f"Segment{idx}.tsx").write_text(_generate_segment_component(idx, seg), "utf-8")
+
+    (output_dir / "Composition.tsx").write_text(
+        _generate_composition_component(joined_segments),
+        "utf-8",
+    )
+    _write_input_props(output_dir, len(joined_segments))
+
+
+def generate_remotion_components(project_name: str) -> int:
+    project_name = str(project_name).strip()
+    if not project_name:
+        raise ValueError("Missing project name")
+
+    project_root = WORKSPACE
+    project_dir = project_root / project_name
+    video_dir = project_dir / "video"
+
+    aroll_json_path = video_dir / "aroll_segments.json"
+    broll_json_path = video_dir / "broll_main_segments.json"
+    output_dir = project_root / "remotion-src" / "src"
+
+    if not aroll_json_path.is_file():
+        raise ValueError(f"A-roll JSON not found at {aroll_json_path}")
+    if not broll_json_path.is_file():
+        raise ValueError(f"B-roll JSON not found at {broll_json_path}")
+
+    try:
+        aroll_json = json.loads(aroll_json_path.read_text("utf-8"))
+        broll_json = json.loads(broll_json_path.read_text("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON: {exc}") from exc
+
+    aroll_src_path = project_root / project_name / "video" / str(aroll_json.get("video", ""))
+    broll_src_path = project_root / project_name / "video" / str(broll_json.get("video", ""))
+
+    if not aroll_src_path.is_file():
+        raise ValueError(f"A-roll video not found at {aroll_src_path}")
+    if not broll_src_path.is_file():
+        raise ValueError(f"B-roll video not found at {broll_src_path}")
+
+    aroll_segments = aroll_json.get("segments", [])
+    broll_segments = broll_json.get("segments", [])
+    if not isinstance(aroll_segments, list) or not isinstance(broll_segments, list):
+        raise ValueError("Invalid segments structure in source JSON")
+
+    joined_segments: list[dict] = []
+
+    for idx, bseg in enumerate(broll_segments):
+        label = _segment_label(idx, bseg)
+
+        aroll_idx = bseg.get("aroll_segment_index")
+        if not isinstance(aroll_idx, int) or aroll_idx < 0 or aroll_idx >= len(aroll_segments):
+            raise ValueError(f"{label}: invalid aroll_segment_index={aroll_idx}")
+
+        aroll_seg = aroll_segments[aroll_idx]
+        broll_start = _as_float(bseg.get("start"), "start")
+        broll_end = _as_float(bseg.get("end"), "end")
+        duration_sec = round(broll_end - broll_start, 3)
+        if duration_sec <= 0:
+            raise ValueError(f"{label}: duration must be > 0")
+
+        max_duration = _as_float(bseg.get("max_duration"), "max_duration")
+        if abs(max_duration - duration_sec) > 0.01:
+            raise ValueError(
+                f"{label}: max_duration ({max_duration}) does not match end-start ({duration_sec})"
+            )
+
+        partitions = aroll_seg.get("partitions", [])
+        if not isinstance(partitions, list):
+            partitions = []
+
+        if partitions:
+            part_idx = bseg.get("aroll_partition_index")
+            if not isinstance(part_idx, int) or part_idx < 0 or part_idx >= len(partitions):
+                raise ValueError(f"{label}: aroll_partition_index out of bounds ({part_idx})")
+            part = partitions[part_idx]
+            aroll_trim_start = _as_float(part.get("start"), "partition.start")
+            _ = _as_float(part.get("end"), "partition.end")
+        else:
+            aroll_trim_start = _as_float(aroll_seg.get("start"), "aroll.start")
+            _ = _as_float(aroll_seg.get("end"), "aroll.end")
+
+        format_label = str(bseg.get("broll_format", ""))
+        layout = FORMAT_MAP.get(format_label)
+        if layout is None:
+            print(
+                f"Warning: {label}: unknown broll_format '{format_label}', using fallback '{FALLBACK_LAYOUT}'"
+            )
+            layout = FALLBACK_LAYOUT
+
+        if layout == "half_and_half" and not broll_src_path.is_file():
+            raise ValueError(
+                f"{label}: layout is {format_label or 'Half-And-Half Split'} "
+                f"but B-roll video not found at {broll_src_path}"
+            )
+
+        aroll_public_src = _ensure_preview_segment_clip(
+            project_root=project_root,
+            project_name=project_name,
+            kind="aroll",
+            segment_index=idx,
+            source_path=aroll_src_path,
+            trim_start=aroll_trim_start,
+            duration_sec=duration_sec,
+        )
+
+        broll_public_src = ""
+        if layout == "half_and_half":
+            broll_public_src = _ensure_preview_segment_clip(
+                project_root=project_root,
+                project_name=project_name,
+                kind="broll",
+                segment_index=idx,
+                source_path=broll_src_path,
+                trim_start=broll_start,
+                duration_sec=duration_sec,
+            )
+
+        joined_segments.append(
+            {
+                "layout": layout,
+                "aroll_src": aroll_public_src,
+                "broll_src": broll_public_src,
+                "aroll_trim_start": 0,
+                "broll_trim_start": 0,
+                "duration_sec": duration_sec,
+            }
+        )
+
+    _write_generated_remotion_files(output_dir, joined_segments)
+
+    subprocess.Popen(
+        ["npx", "remotion", "studio"],
+        cwd=project_root / "remotion-src",
+    )
+
+    return len(joined_segments)
+
+
 # ─── HTTP Handler ───────────────────────────────────────────────────────────
 class TrimmerHandler(http.server.BaseHTTPRequestHandler):
     session_store: SessionStore
@@ -664,6 +1014,25 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             type(self).on_client_close()
             self._json({"ok": True})
+        elif req_path == "/api/generate-remotion":
+            try:
+                body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                data = json.loads(body)
+            except (ValueError, json.JSONDecodeError):
+                self._json({"ok": False, "error": "Invalid JSON body"}, status=400)
+                return
+
+            project = str(data.get("project", "")).strip()
+            try:
+                segment_count = generate_remotion_components(project)
+            except ValueError as exc:
+                self._json({"ok": False, "error": str(exc)}, status=400)
+                return
+            except OSError as exc:
+                self._json({"ok": False, "error": str(exc)}, status=500)
+                return
+
+            self._json({"ok": True, "segment_count": segment_count})
         else:
             self.send_error(404)
 

@@ -1,0 +1,12 @@
+{
+  "segments": [
+    {
+      "index": 0,
+      "splitRatio": 0.5
+    },
+    {
+      "index": 1,
+      "splitRatio": 0.5
+    }
+  ]
+}
