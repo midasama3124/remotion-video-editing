@@ -1,6 +1,12 @@
 import React from "react";
 import { AbsoluteFill, Html5Video } from "remotion";
 
+type LayerTransform = {
+  zoom: number;
+  posX: number;
+  posY: number;
+};
+
 type HalfAndHalfProps = {
   arollSrc: string;
   brollSrc: string;
@@ -8,6 +14,8 @@ type HalfAndHalfProps = {
   brollTrimStart: number;
   durationSec: number;
   splitRatio?: number;
+  arollTransform?: LayerTransform;
+  brollTransform?: LayerTransform;
   fps: number;
 };
 
@@ -18,6 +26,8 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
   brollTrimStart,
   durationSec,
   splitRatio = 0.5,
+  arollTransform = { zoom: 1, posX: 0, posY: 0 },
+  brollTransform = { zoom: 1, posX: 0, posY: 0 },
   fps,
 }) => {
   const safeSplitRatio = Math.min(1, Math.max(0, splitRatio));
@@ -42,15 +52,24 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
           zIndex: 1,
         }}
       >
-        <Html5Video
-          src={brollSrc}
-          startFrom={startBroll}
-          endAt={endBroll}
-          onError={(error) => {
-            console.error("B-roll playback error", { src: brollSrc, error });
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            transform: `translate(${brollTransform.posX}px, ${brollTransform.posY}px) scale(${brollTransform.zoom})`,
+            transformOrigin: "center center",
           }}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
+        >
+          <Html5Video
+            src={brollSrc}
+            startFrom={startBroll}
+            endAt={endBroll}
+            onError={(error) => {
+              console.error("B-roll playback error", { src: brollSrc, error });
+            }}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        </div>
       </div>
 
       <div
@@ -64,15 +83,24 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
           zIndex: 1,
         }}
       >
-        <Html5Video
-          src={arollSrc}
-          startFrom={startAroll}
-          endAt={endAroll}
-          onError={(error) => {
-            console.error("A-roll playback error", { src: arollSrc, error });
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            transform: `translate(${arollTransform.posX}px, ${arollTransform.posY}px) scale(${arollTransform.zoom})`,
+            transformOrigin: "center center",
           }}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
+        >
+          <Html5Video
+            src={arollSrc}
+            startFrom={startAroll}
+            endAt={endAroll}
+            onError={(error) => {
+              console.error("A-roll playback error", { src: arollSrc, error });
+            }}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        </div>
       </div>
     </AbsoluteFill>
   );

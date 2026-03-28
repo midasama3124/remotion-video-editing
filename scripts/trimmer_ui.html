@@ -67,6 +67,12 @@
             gap: 4px;
             flex-shrink: 0;
         }
+        #remotion-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
         #remotion-generate-btn {
             background: var(--surface2);
             border: 1px solid var(--border);
@@ -84,6 +90,78 @@
         #remotion-generate-btn:disabled {
             opacity: 0.6;
             cursor: wait;
+        }
+        .remotion-action-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            width: fit-content;
+        }
+        .remotion-action-btn:hover:not(:disabled) {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .remotion-action-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+        #studio-import-toggle.active {
+            border-color: var(--accent);
+            color: #fff;
+            background: rgba(233, 69, 96, 0.2);
+        }
+        #studio-import-panel {
+            display: none;
+            margin-top: 2px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(15, 52, 96, 0.25);
+            padding: 8px;
+            gap: 8px;
+            flex-direction: column;
+        }
+        #studio-import-panel.open {
+            display: flex;
+        }
+        #studio-import-panel label {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        #studio-import-text {
+            width: 100%;
+            min-height: 120px;
+            resize: vertical;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            padding: 8px;
+            font-size: 12px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        #studio-import-text:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        #studio-import-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        #studio-import-note {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        #studio-import-note.error {
+            color: #ffb5b5;
+        }
+        #studio-import-note.success {
+            color: var(--success);
         }
         #remotion-status {
             font-size: 12px;
@@ -188,12 +266,52 @@
             padding: 4px 0; z-index: 5;
         }
         #segments-header h2 { font-size: 15px; font-weight: 600; }
+        .segments-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .toolbar-field {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .toolbar-select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 4px 7px;
+            font-size: 11px;
+            min-width: 170px;
+        }
+        .toolbar-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
         #add-btn {
             background: var(--success); border: none; color: #fff;
             width: 28px; height: 28px; border-radius: 50%; font-size: 18px;
             cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
         #add-btn:hover { background: #66BB6A; }
+        #select-mode-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        #select-mode-btn:hover { border-color: var(--accent); }
+        #select-mode-btn.active {
+            border-color: var(--accent);
+            color: #fff;
+            background: rgba(233, 69, 96, 0.25);
+        }
 
         /* Segment items */
         #segment-list { display: flex; flex-direction: column; gap: 6px; }
@@ -203,7 +321,15 @@
         }
         .seg-item.active { border-color: var(--accent); }
         .seg-item.drag-over { border-color: var(--success); border-style: dashed; }
+        .seg-item.select-mode { padding-left: 12px; }
         .seg-row { display: flex; align-items: center; gap: 6px; }
+        .seg-select-checkbox {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
         .drag-handle {
             cursor: grab; color: var(--text-dim); font-size: 14px;
             padding: 2px 4px; user-select: none;
@@ -245,6 +371,424 @@
         .abtn:hover { color: var(--text); border-color: var(--accent); }
         .abtn.set-s:hover { border-color: var(--success); color: var(--success); }
         .abtn.set-e:hover { border-color: var(--warning); color: var(--warning); }
+        .abtn.transform-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .abtn.transform-toggle:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .transform-edited-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.25);
+        }
+        .transform-panel {
+            margin-top: 8px;
+            margin-left: 32px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .transform-group {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px;
+            background: rgba(15, 52, 96, 0.2);
+        }
+        .transform-group-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+        .transform-field {
+            display: grid;
+            grid-template-columns: 50px 1fr 72px;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .transform-field:last-child { margin-bottom: 0; }
+        .transform-field-label {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .transform-slider {
+            width: 100%;
+            accent-color: var(--accent);
+        }
+        .transform-number {
+            width: 100%;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 11px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        .transform-number:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .transform-save-status {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .transform-save-status.success { color: var(--success); }
+        .transform-save-status.error { color: #ff7f7f; }
+        .retry-btn {
+            background: transparent;
+            border: 1px solid #ff7f7f;
+            color: #ffb5b5;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        .retry-btn:hover {
+            color: #fff;
+            border-color: #ffb5b5;
+        }
+        .seg-overflow-wrap {
+            position: relative;
+        }
+        .overflow-btn {
+            min-width: 28px;
+            padding: 3px 6px;
+        }
+        .overflow-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            z-index: 20;
+            min-width: 190px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+            padding: 6px;
+            display: none;
+            gap: 4px;
+            flex-direction: column;
+        }
+        .overflow-menu.open { display: flex; }
+        .overflow-action {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 5px 8px;
+            text-align: left;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .overflow-action:hover {
+            border-color: var(--accent);
+        }
+        .overflow-action:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .overflow-confirm {
+            margin-top: 2px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            font-size: 11px;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .overflow-confirm-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .overflow-confirm-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        .overflow-confirm-btn.confirm {
+            border-color: #e57373;
+            color: #ffc5c5;
+        }
+        .overflow-confirm-btn:hover {
+            border-color: var(--accent);
+        }
+        .transform-unsupported-note {
+            margin-top: 6px;
+            margin-left: 32px;
+            font-size: 11px;
+            color: var(--text-dim);
+            font-style: italic;
+        }
+        #bulk-action-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 16px;
+            transform: translateX(-50%);
+            z-index: 80;
+            width: min(940px, calc(100vw - 28px));
+            background: rgba(22, 33, 62, 0.96);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 16px 28px rgba(0, 0, 0, 0.35);
+            padding: 10px;
+            display: none;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        #bulk-action-count {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-right: 6px;
+        }
+        .bulk-action-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .bulk-action-btn:hover { border-color: var(--accent); }
+        .bulk-action-btn.warn:hover { border-color: #ff9a9a; }
+        .bulk-inline-panel {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 8px;
+            display: none;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .bulk-inline-panel.open { display: flex; }
+        .bulk-inline-title {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-right: 4px;
+        }
+        .bulk-inline-select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 12px;
+            min-width: 180px;
+        }
+        .bulk-inline-note {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .presets-wrap {
+            position: relative;
+        }
+        #presets-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        #presets-btn:hover { border-color: var(--accent); }
+        #presets-btn.active {
+            border-color: var(--accent);
+            background: rgba(233, 69, 96, 0.18);
+        }
+        #presets-popover {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            width: min(420px, calc(100vw - 36px));
+            max-height: 62vh;
+            overflow: auto;
+            z-index: 70;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.4);
+            padding: 10px;
+            display: none;
+        }
+        #presets-popover.open { display: block; }
+        .presets-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        #presets-current-format {
+            color: #8fd3ff;
+            font-weight: 600;
+        }
+        #presets-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .preset-row {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .preset-meta {
+            min-width: 0;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .preset-name {
+            font-size: 12px;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .preset-date {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+        .preset-actions {
+            display: inline-flex;
+            gap: 6px;
+        }
+        .preset-action-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .preset-action-btn:hover { border-color: var(--accent); }
+        .preset-action-btn.delete:hover {
+            border-color: #ff9a9a;
+            color: #ffd6d6;
+        }
+        #presets-empty,
+        #presets-load-note,
+        #preset-save-note,
+        #preset-conflict-note {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        #presets-load-note.error,
+        #preset-save-note.error,
+        #preset-conflict-note.error {
+            color: #ffb5b5;
+        }
+        #preset-save-panel {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(15, 52, 96, 0.2);
+            padding: 8px;
+            display: none;
+            flex-direction: column;
+            gap: 6px;
+        }
+        #preset-save-panel.open { display: flex; }
+        #preset-ref-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        #preset-ref-row label {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        #preset-name-input {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 12px;
+        }
+        #preset-name-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        #preset-save-actions,
+        #preset-conflict-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        #bulk-toast {
+            position: fixed;
+            right: 14px;
+            bottom: 16px;
+            z-index: 85;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            background: rgba(15, 52, 96, 0.95);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 8px 10px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+        }
+        #bulk-toast-message {
+            font-size: 12px;
+            color: var(--text);
+        }
+        #bulk-toast-undo {
+            background: transparent;
+            border: 1px solid #8fd3ff;
+            color: #8fd3ff;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        #bulk-toast-undo:hover { color: #fff; border-color: #fff; }
+        #bulk-toast-close {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            font-size: 16px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        #bulk-toast-close:hover { color: #fff; }
 
         /* B-Roll selector row */
         .aroll-row {
@@ -413,17 +957,102 @@
     </div>
 
     <div id="remotion-controls">
-        <button id="remotion-generate-btn" title="Generate Remotion components and open Studio">Generate &amp; Open Studio</button>
+        <div id="remotion-actions">
+            <button id="remotion-generate-btn" title="Generate Remotion components and open Studio">Generate &amp; Open Studio</button>
+            <button id="studio-save-btn" class="remotion-action-btn" title="Read current Remotion input props and persist Studio tweaks to B-Roll segments">Save Studio Tweaks</button>
+            <button id="studio-import-toggle" class="remotion-action-btn" title="Paste input props JSON manually if direct fetch is unavailable">Import Studio Props JSON</button>
+        </div>
+        <div id="studio-import-panel">
+            <label for="studio-import-text">Paste JSON from Studio (expects an object with segments or an inputProps wrapper):</label>
+            <textarea id="studio-import-text" placeholder='{"segments":[{"index":0,"splitRatio":0.5,"visualTransforms":{"aroll":{"zoom":1,"posX":0,"posY":0},"broll":{"zoom":1,"posX":0,"posY":0}}}]}'></textarea>
+            <div id="studio-import-actions">
+                <button id="studio-import-save-btn" class="remotion-action-btn">Save Imported Tweaks</button>
+                <button id="studio-import-clear-btn" class="remotion-action-btn">Clear</button>
+                <span id="studio-import-note"></span>
+            </div>
+        </div>
         <div id="remotion-status"></div>
-        <div id="remotion-note">Re-generating resets Studio tweaks - run this before making final adjustments in Studio.</div>
+        <div id="remotion-note">Re-generating can reset Studio tweaks. Generate first, then use Save Studio Tweaks after final adjustments.</div>
     </div>
 
     <div id="segments-section">
         <div id="segments-header">
             <h2 id="seg-title">Segments</h2>
-            <button id="add-btn" title="Add segment">+</button>
+            <div class="segments-header-actions">
+                <label id="toolbar-format-wrap" class="toolbar-field" style="display:none">
+                    <span>Format</span>
+                    <select id="toolbar-format-select" class="toolbar-select"></select>
+                </label>
+                <div class="presets-wrap" id="presets-wrap" style="display:none">
+                    <button id="presets-btn" title="Manage presets">Presets</button>
+                    <div id="presets-popover">
+                        <div class="presets-title">
+                            <span>Presets for <span id="presets-current-format"></span></span>
+                        </div>
+                        <div id="presets-load-note"></div>
+                        <div id="presets-list"></div>
+                        <div id="presets-empty" style="display:none">No presets saved for this format.</div>
+                        <button id="preset-save-toggle" class="preset-action-btn">Save current as preset</button>
+                        <div id="preset-save-panel">
+                            <div id="preset-ref-row" style="display:none">
+                                <label for="preset-ref-select">Reference segment</label>
+                                <select id="preset-ref-select" class="toolbar-select"></select>
+                            </div>
+                            <input id="preset-name-input" type="text" placeholder="Preset name" maxlength="80">
+                            <div id="preset-save-actions">
+                                <button id="preset-save-confirm" class="preset-action-btn">Save</button>
+                                <button id="preset-save-cancel" class="preset-action-btn">Cancel</button>
+                            </div>
+                            <div id="preset-save-note"></div>
+                            <div id="preset-conflict" style="display:none">
+                                <div id="preset-conflict-note">A preset with this name already exists.</div>
+                                <div id="preset-conflict-actions">
+                                    <button id="preset-overwrite-btn" class="preset-action-btn">Overwrite</button>
+                                    <button id="preset-rename-btn" class="preset-action-btn">Rename</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button id="select-mode-btn" title="Select multiple segments">Select segments</button>
+                <button id="add-btn" title="Add segment">+</button>
+            </div>
         </div>
         <div id="segment-list"></div>
+    </div>
+
+    <div id="bulk-action-bar">
+        <span id="bulk-action-count"></span>
+        <button id="bulk-apply-source-btn" class="bulk-action-btn">Apply transforms from...</button>
+        <button id="bulk-apply-preset-btn" class="bulk-action-btn">Apply preset</button>
+        <button id="bulk-reset-btn" class="bulk-action-btn warn">Reset selected</button>
+
+        <div id="bulk-source-panel" class="bulk-inline-panel">
+            <span class="bulk-inline-title">Copy source</span>
+            <select id="bulk-source-select" class="bulk-inline-select"></select>
+            <button id="bulk-source-confirm" class="bulk-action-btn">Apply</button>
+            <button id="bulk-source-cancel" class="bulk-action-btn">Cancel</button>
+        </div>
+
+        <div id="bulk-preset-panel" class="bulk-inline-panel">
+            <span class="bulk-inline-title">Preset</span>
+            <select id="bulk-preset-select" class="bulk-inline-select"></select>
+            <button id="bulk-preset-confirm" class="bulk-action-btn">Apply</button>
+            <button id="bulk-preset-cancel" class="bulk-action-btn">Cancel</button>
+            <span id="bulk-preset-note" class="bulk-inline-note"></span>
+        </div>
+
+        <div id="bulk-reset-panel" class="bulk-inline-panel">
+            <span class="bulk-inline-title">Reset selected transforms?</span>
+            <button id="bulk-reset-confirm" class="bulk-action-btn warn">Confirm</button>
+            <button id="bulk-reset-cancel" class="bulk-action-btn">Cancel</button>
+        </div>
+    </div>
+
+    <div id="bulk-toast">
+        <span id="bulk-toast-message"></span>
+        <button id="bulk-toast-undo">Undo</button>
+        <button id="bulk-toast-close" title="Dismiss">×</button>
     </div>
 
     <!-- Partition Modal -->
@@ -470,7 +1099,24 @@ let timelineCenterTime = 0;
 let selectorSync = false;
 let heartbeatTimer = null;
 let pingTimer = null;
+let openOverflowMenuEl = null;
+let selectMode = false;
+let bulkToastTimer = null;
+let bulkUndoPayload = null;
+let bulkActionInFlight = false;
+let toolbarActiveFormat = 'Half-And-Half Split';
+let presetsPopoverOpen = false;
+let presetsLoadToken = 0;
+let presetsCache = [];
+let pendingPresetConflictPayload = null;
+const selectedSegmentIndices = new Set();
 const STRICT_UNIQUE_AROLL_BINDING = true;
+const transformPanelOpen = new WeakMap();
+const transformUndoSnapshot = new WeakMap();
+const transformSaveTimer = new WeakMap();
+const transformSaveSequence = new WeakMap();
+const transformSaveState = new WeakMap();
+const transformUiRefs = new WeakMap();
 const BROLL_FORMAT_OPTIONS = [
     'A-Roll Only',    
     'B-Roll Only',
@@ -478,6 +1124,17 @@ const BROLL_FORMAT_OPTIONS = [
     'Half-And-Half Split',
 ];
 const DEFAULT_BROLL_FORMAT = 'Half-And-Half Split';
+const TRANSFORM_SUPPORTED_FORMATS = new Set(['Half-And-Half Split']);
+const TRANSFORM_LIMITS = {
+    zoom: { min: 0.5, max: 2.0, step: 0.01, decimals: 2 },
+    posX: { min: -600, max: 600, step: 1, decimals: 0 },
+    posY: { min: -600, max: 600, step: 1, decimals: 0 },
+};
+const DEFAULT_LAYER_TRANSFORM = { zoom: 1.0, posX: 0.0, posY: 0.0 };
+const DEFAULT_VISUAL_TRANSFORMS = {
+    aroll: { ...DEFAULT_LAYER_TRANSFORM },
+    broll: { ...DEFAULT_LAYER_TRANSFORM },
+};
 
 const COLORS = [
     '#4CAF50','#2196F3','#FF9800','#E91E63','#9C27B0',
@@ -498,6 +1155,28 @@ const btnPlay       = document.getElementById('btn-play');
 const timeDisp      = document.getElementById('time-display');
 const segList       = document.getElementById('segment-list');
 const addBtn        = document.getElementById('add-btn');
+const selectModeBtn = document.getElementById('select-mode-btn');
+const toolbarFormatWrap = document.getElementById('toolbar-format-wrap');
+const toolbarFormatSelect = document.getElementById('toolbar-format-select');
+const presetsWrap = document.getElementById('presets-wrap');
+const presetsBtn = document.getElementById('presets-btn');
+const presetsPopover = document.getElementById('presets-popover');
+const presetsCurrentFormat = document.getElementById('presets-current-format');
+const presetsLoadNote = document.getElementById('presets-load-note');
+const presetsList = document.getElementById('presets-list');
+const presetsEmpty = document.getElementById('presets-empty');
+const presetSaveToggle = document.getElementById('preset-save-toggle');
+const presetSavePanel = document.getElementById('preset-save-panel');
+const presetRefRow = document.getElementById('preset-ref-row');
+const presetRefSelect = document.getElementById('preset-ref-select');
+const presetNameInput = document.getElementById('preset-name-input');
+const presetSaveConfirm = document.getElementById('preset-save-confirm');
+const presetSaveCancel = document.getElementById('preset-save-cancel');
+const presetSaveNote = document.getElementById('preset-save-note');
+const presetConflict = document.getElementById('preset-conflict');
+const presetConflictNote = document.getElementById('preset-conflict-note');
+const presetOverwriteBtn = document.getElementById('preset-overwrite-btn');
+const presetRenameBtn = document.getElementById('preset-rename-btn');
 const projInfo      = document.getElementById('project-info');
 const saveStatus    = document.getElementById('save-status');
 const restoreHint   = document.getElementById('session-restore-hint');
@@ -508,7 +1187,35 @@ const projectSelect = document.getElementById('project-select');
 const modeSelect    = document.getElementById('mode-select');
 const videoSelect   = document.getElementById('video-select');
 const remotionGenerateBtn = document.getElementById('remotion-generate-btn');
+const studioSaveBtn = document.getElementById('studio-save-btn');
+const studioImportToggle = document.getElementById('studio-import-toggle');
+const studioImportPanel = document.getElementById('studio-import-panel');
+const studioImportText = document.getElementById('studio-import-text');
+const studioImportSaveBtn = document.getElementById('studio-import-save-btn');
+const studioImportClearBtn = document.getElementById('studio-import-clear-btn');
+const studioImportNote = document.getElementById('studio-import-note');
 const remotionStatus = document.getElementById('remotion-status');
+const bulkActionBar = document.getElementById('bulk-action-bar');
+const bulkActionCount = document.getElementById('bulk-action-count');
+const bulkApplySourceBtn = document.getElementById('bulk-apply-source-btn');
+const bulkApplyPresetBtn = document.getElementById('bulk-apply-preset-btn');
+const bulkResetBtn = document.getElementById('bulk-reset-btn');
+const bulkSourcePanel = document.getElementById('bulk-source-panel');
+const bulkSourceSelect = document.getElementById('bulk-source-select');
+const bulkSourceConfirm = document.getElementById('bulk-source-confirm');
+const bulkSourceCancel = document.getElementById('bulk-source-cancel');
+const bulkPresetPanel = document.getElementById('bulk-preset-panel');
+const bulkPresetSelect = document.getElementById('bulk-preset-select');
+const bulkPresetConfirm = document.getElementById('bulk-preset-confirm');
+const bulkPresetCancel = document.getElementById('bulk-preset-cancel');
+const bulkPresetNote = document.getElementById('bulk-preset-note');
+const bulkResetPanel = document.getElementById('bulk-reset-panel');
+const bulkResetConfirm = document.getElementById('bulk-reset-confirm');
+const bulkResetCancel = document.getElementById('bulk-reset-cancel');
+const bulkToast = document.getElementById('bulk-toast');
+const bulkToastMessage = document.getElementById('bulk-toast-message');
+const bulkToastUndo = document.getElementById('bulk-toast-undo');
+const bulkToastClose = document.getElementById('bulk-toast-close');
 
 /* ── Helpers ───────────────────────────────────────────────── */
 function fmt(s) {
@@ -522,6 +1229,65 @@ function dur(seg) {
     return (seg.start != null && seg.end != null) ? Math.max(0, seg.end - seg.start) : 0;
 }
 function round3(t) { return Math.round(t * 1000) / 1000; }
+function roundN(value, decimals) {
+    const p = 10 ** decimals;
+    return Math.round(value * p) / p;
+}
+
+function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+}
+
+function cloneTransforms(transforms) {
+    return {
+        aroll: {
+            zoom: Number(transforms?.aroll?.zoom),
+            posX: Number(transforms?.aroll?.posX),
+            posY: Number(transforms?.aroll?.posY),
+        },
+        broll: {
+            zoom: Number(transforms?.broll?.zoom),
+            posX: Number(transforms?.broll?.posX),
+            posY: Number(transforms?.broll?.posY),
+        },
+    };
+}
+
+function normalizeLayerTransformClient(layer) {
+    const src = layer && typeof layer === 'object' ? layer : {};
+    return {
+        zoom: roundN(clamp(Number.isFinite(Number(src.zoom)) ? Number(src.zoom) : 1.0, TRANSFORM_LIMITS.zoom.min, TRANSFORM_LIMITS.zoom.max), 4),
+        posX: roundN(clamp(Number.isFinite(Number(src.posX)) ? Number(src.posX) : 0.0, TRANSFORM_LIMITS.posX.min, TRANSFORM_LIMITS.posX.max), 3),
+        posY: roundN(clamp(Number.isFinite(Number(src.posY)) ? Number(src.posY) : 0.0, TRANSFORM_LIMITS.posY.min, TRANSFORM_LIMITS.posY.max), 3),
+    };
+}
+
+function normalizeVisualTransformsClient(transforms) {
+    const src = transforms && typeof transforms === 'object' ? transforms : {};
+    return {
+        aroll: normalizeLayerTransformClient(src.aroll),
+        broll: normalizeLayerTransformClient(src.broll),
+    };
+}
+
+function ensureSegmentVisualTransforms(seg) {
+    seg.visual_transforms = normalizeVisualTransformsClient(seg.visual_transforms);
+    return seg.visual_transforms;
+}
+
+function transformsAreDefault(transforms) {
+    const t = normalizeVisualTransformsClient(transforms);
+    return t.aroll.zoom === DEFAULT_VISUAL_TRANSFORMS.aroll.zoom
+        && t.aroll.posX === DEFAULT_VISUAL_TRANSFORMS.aroll.posX
+        && t.aroll.posY === DEFAULT_VISUAL_TRANSFORMS.aroll.posY
+        && t.broll.zoom === DEFAULT_VISUAL_TRANSFORMS.broll.zoom
+        && t.broll.posX === DEFAULT_VISUAL_TRANSFORMS.broll.posX
+        && t.broll.posY === DEFAULT_VISUAL_TRANSFORMS.broll.posY;
+}
+
+function canEditTransformsForSegment(seg) {
+    return config.mode === 'broll' && TRANSFORM_SUPPORTED_FORMATS.has(normalizeBrollFormat(seg.broll_format));
+}
 
 function normalizeBrollFormat(value) {
     return BROLL_FORMAT_OPTIONS.includes(value) ? value : DEFAULT_BROLL_FORMAT;
@@ -894,6 +1660,167 @@ function setRemotionStatus(message, kind = 'info') {
     remotionStatus.innerHTML = message;
 }
 
+function setStudioImportNote(message, kind = 'info') {
+    studioImportNote.classList.remove('error', 'success');
+    if (kind === 'error') studioImportNote.classList.add('error');
+    if (kind === 'success') studioImportNote.classList.add('success');
+    studioImportNote.textContent = message || '';
+}
+
+function setRemotionBusy(isBusy) {
+    remotionGenerateBtn.disabled = isBusy;
+    studioSaveBtn.disabled = isBusy;
+    studioImportSaveBtn.disabled = isBusy;
+}
+
+function normalizeInputPropsPayload(raw) {
+    if (!raw || typeof raw !== 'object') {
+        throw new Error('Expected a JSON object.');
+    }
+
+    let payload = raw;
+    if (payload.inputProps && typeof payload.inputProps === 'object') {
+        payload = payload.inputProps;
+    }
+
+    if (!Array.isArray(payload.segments)) {
+        throw new Error('JSON must include a segments array.');
+    }
+
+    return { segments: payload.segments };
+}
+
+function countSegmentMismatchMessage(payloadSegmentCount) {
+    const expected = Array.isArray(segments) ? segments.length : 0;
+    if (!expected || payloadSegmentCount === expected) {
+        return '';
+    }
+    return ` Warning: payload has ${payloadSegmentCount} segments, current list has ${expected}.`;
+}
+
+function buildStudioSaveStatus(result, payloadSegmentCount) {
+    const updated = Number(result.updated) || 0;
+    const failures = Array.isArray(result.failures) ? result.failures : [];
+    const mismatchText = countSegmentMismatchMessage(payloadSegmentCount);
+
+    if (failures.length > 0) {
+        return {
+            kind: 'error',
+            message: `Saved ${updated} segments, ${failures.length} failed.${mismatchText}`,
+        };
+    }
+    return {
+        kind: 'success',
+        message: `✓ Studio tweaks saved for ${updated} segments.${mismatchText}`,
+    };
+}
+
+async function persistStudioTweaks(payload) {
+    const response = await fetch('/api/remotion/input-props/save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            project: config.project,
+            inputProps: payload,
+        }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) {
+        throw new Error(result.error || `Save failed (HTTP ${response.status})`);
+    }
+    return result;
+}
+
+async function saveStudioTweaksFromServerProps() {
+    if (!config.project) {
+        setRemotionStatus('No active project selected.', 'error');
+        return;
+    }
+
+    setRemotionBusy(true);
+    setRemotionStatus('Reading current input props and saving Studio tweaks...');
+
+    try {
+        const response = await fetch(`/api/remotion/input-props?project=${encodeURIComponent(config.project)}`);
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || `Fetch failed (HTTP ${response.status})`);
+        }
+
+        const payload = normalizeInputPropsPayload(data.inputProps || {});
+        const result = await persistStudioTweaks(payload);
+        const status = buildStudioSaveStatus(result, payload.segments.length);
+        setRemotionStatus(status.message, status.kind);
+
+        // Keep local UI and duration guards in sync with persisted values.
+        await loadSegments();
+        renderSegList();
+        renderTlSegs();
+    } catch (err) {
+        setRemotionStatus(`Save Studio Tweaks failed: ${err.message}`, 'error');
+    } finally {
+        setRemotionBusy(false);
+    }
+}
+
+function toggleStudioImportPanel(forceOpen = null) {
+    const shouldOpen = forceOpen == null ? !studioImportPanel.classList.contains('open') : Boolean(forceOpen);
+    studioImportPanel.classList.toggle('open', shouldOpen);
+    studioImportToggle.classList.toggle('active', shouldOpen);
+    if (!shouldOpen) {
+        setStudioImportNote('');
+    }
+}
+
+async function saveStudioTweaksFromImportedJson() {
+    if (!config.project) {
+        setRemotionStatus('No active project selected.', 'error');
+        return;
+    }
+
+    const rawText = String(studioImportText.value || '').trim();
+    if (!rawText) {
+        setStudioImportNote('Paste JSON before saving.', 'error');
+        return;
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(rawText);
+    } catch (_err) {
+        setStudioImportNote('Invalid JSON. Please fix and try again.', 'error');
+        return;
+    }
+
+    let payload;
+    try {
+        payload = normalizeInputPropsPayload(parsed);
+    } catch (err) {
+        setStudioImportNote(err.message, 'error');
+        return;
+    }
+
+    setRemotionBusy(true);
+    setStudioImportNote('Saving imported tweaks...');
+
+    try {
+        const result = await persistStudioTweaks(payload);
+        const status = buildStudioSaveStatus(result, payload.segments.length);
+        setRemotionStatus(status.message, status.kind);
+        setStudioImportNote(status.message, status.kind === 'error' ? 'error' : 'success');
+
+        await loadSegments();
+        renderSegList();
+        renderTlSegs();
+    } catch (err) {
+        const msg = `Save imported tweaks failed: ${err.message}`;
+        setStudioImportNote(msg, 'error');
+        setRemotionStatus(msg, 'error');
+    } finally {
+        setRemotionBusy(false);
+    }
+}
+
 async function generateAndOpenStudio() {
     if (!config.project) {
         setRemotionStatus('No active project selected.', 'error');
@@ -961,6 +1888,7 @@ async function loadSegments() {
                 seg.aroll_partition_index = 0;
             }
             seg.broll_format = normalizeBrollFormat(seg.broll_format);
+            ensureSegmentVisualTransforms(seg);
             if (seg.aroll_segment_index == null) {
                 seg.aroll_partition_index = null;
                 seg.aroll_segment_name = null;
@@ -978,6 +1906,9 @@ async function loadArollSegments() {
 
 async function reloadForSession() {
     activeIdx = -1;
+    setSelectMode(false);
+    hideBulkToast();
+    bulkUndoPayload = null;
     timelineZoom = 1;
     timelineCenterTime = 0;
     updateZoomLabel();
@@ -1577,8 +2508,778 @@ window.addEventListener('resize', () => {
     drawWaveform();
 });
 
+function getTransformSaveSnapshot(seg) {
+    const state = transformSaveState.get(seg);
+    if (state && typeof state === 'object') return state;
+    return { status: 'idle', message: '' };
+}
+
+function setTransformSaveSnapshot(seg, next) {
+    transformSaveState.set(seg, next);
+    updateTransformUi(seg);
+}
+
+function updateTransformUi(seg) {
+    const refs = transformUiRefs.get(seg);
+    if (!refs) return;
+
+    if (refs.editedDot) {
+        const edited = !transformsAreDefault(seg.visual_transforms);
+        refs.editedDot.style.display = edited ? 'inline-block' : 'none';
+    }
+
+    const state = getTransformSaveSnapshot(seg);
+    if (refs.statusEl) {
+        refs.statusEl.classList.remove('success', 'error');
+        refs.statusEl.textContent = '';
+        if (state.status === 'saving') {
+            refs.statusEl.textContent = 'Saving...';
+        } else if (state.status === 'saved') {
+            refs.statusEl.textContent = 'Saved ✓';
+            refs.statusEl.classList.add('success');
+        } else if (state.status === 'error') {
+            refs.statusEl.textContent = state.message || 'Save failed - retry?';
+            refs.statusEl.classList.add('error');
+        }
+    }
+
+    if (refs.retryBtn) {
+        refs.retryBtn.style.display = state.status === 'error' ? 'inline-flex' : 'none';
+    }
+}
+
+function closeOverflowMenu() {
+    if (!openOverflowMenuEl) return;
+    openOverflowMenuEl.classList.remove('open');
+    openOverflowMenuEl = null;
+}
+
+function toggleOverflowMenu(menuEl) {
+    if (openOverflowMenuEl && openOverflowMenuEl !== menuEl) {
+        openOverflowMenuEl.classList.remove('open');
+    }
+    const shouldOpen = !menuEl.classList.contains('open');
+    menuEl.classList.toggle('open', shouldOpen);
+    openOverflowMenuEl = shouldOpen ? menuEl : null;
+}
+
+document.addEventListener('click', (e) => {
+    if (!openOverflowMenuEl) return;
+    if (openOverflowMenuEl.contains(e.target)) return;
+    closeOverflowMenu();
+});
+
+function ensureTransformUndoSnapshot(seg) {
+    transformUndoSnapshot.set(seg, cloneTransforms(ensureSegmentVisualTransforms(seg)));
+}
+
+function setTransformValue(seg, layerName, fieldName, value) {
+    const current = ensureSegmentVisualTransforms(seg);
+
+    const next = cloneTransforms(current);
+    next[layerName][fieldName] = value;
+    const normalizedNext = normalizeVisualTransformsClient(next);
+
+    if (segmentTransformsEqual(current, normalizedNext)) {
+        return;
+    }
+
+    ensureTransformUndoSnapshot(seg);
+    seg.visual_transforms = normalizedNext;
+    updateTransformUi(seg);
+    scheduleVisualTransformSave(seg);
+}
+
+function applyLayerCopy(seg, fromLayer, toLayer) {
+    const current = ensureSegmentVisualTransforms(seg);
+
+    const next = cloneTransforms(current);
+    next[toLayer] = { ...next[fromLayer] };
+    const normalizedNext = normalizeVisualTransformsClient(next);
+
+    if (segmentTransformsEqual(current, normalizedNext)) {
+        return;
+    }
+
+    ensureTransformUndoSnapshot(seg);
+    seg.visual_transforms = normalizedNext;
+    updateTransformUi(seg);
+    scheduleVisualTransformSave(seg);
+}
+
+function applyLayerReset(seg, layerName) {
+    const current = ensureSegmentVisualTransforms(seg);
+
+    const next = cloneTransforms(current);
+    next[layerName] = { ...DEFAULT_LAYER_TRANSFORM };
+    const normalizedNext = normalizeVisualTransformsClient(next);
+
+    if (segmentTransformsEqual(current, normalizedNext)) {
+        return;
+    }
+
+    ensureTransformUndoSnapshot(seg);
+    seg.visual_transforms = normalizedNext;
+    updateTransformUi(seg);
+    scheduleVisualTransformSave(seg);
+}
+
+function applyAllReset(seg) {
+    const current = ensureSegmentVisualTransforms(seg);
+    const normalizedNext = normalizeVisualTransformsClient(DEFAULT_VISUAL_TRANSFORMS);
+
+    if (segmentTransformsEqual(current, normalizedNext)) {
+        return;
+    }
+
+    ensureTransformUndoSnapshot(seg);
+    seg.visual_transforms = normalizedNext;
+    updateTransformUi(seg);
+    scheduleVisualTransformSave(seg);
+}
+
+function applyTransformUndo(seg) {
+    const snapshot = transformUndoSnapshot.get(seg);
+    if (!snapshot) return;
+    seg.visual_transforms = normalizeVisualTransformsClient(snapshot);
+    transformUndoSnapshot.delete(seg);
+    updateTransformUi(seg);
+    scheduleVisualTransformSave(seg);
+}
+
+async function saveVisualTransformNow(seg) {
+    const segIdx = segments.indexOf(seg);
+    if (segIdx < 0) return;
+
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        await saveSegments(false);
+    }
+
+    const seq = (transformSaveSequence.get(seg) || 0) + 1;
+    transformSaveSequence.set(seg, seq);
+
+    const payload = {
+        segmentIndex: segIdx,
+        visualTransforms: normalizeVisualTransformsClient(seg.visual_transforms),
+    };
+
+    setTransformSaveSnapshot(seg, { status: 'saving', message: '' });
+
+    try {
+        const res = await fetch('/api/segments/visual-transform', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+
+        if (transformSaveSequence.get(seg) !== seq) return;
+
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+        }
+
+        if (data.segment && typeof data.segment === 'object') {
+            seg.visual_transforms = normalizeVisualTransformsClient(data.segment.visual_transforms);
+        }
+
+        setTransformSaveSnapshot(seg, { status: 'saved', message: '' });
+        setTimeout(() => {
+            const state = getTransformSaveSnapshot(seg);
+            if (state.status === 'saved') {
+                setTransformSaveSnapshot(seg, { status: 'idle', message: '' });
+            }
+        }, 1600);
+    } catch (_err) {
+        if (transformSaveSequence.get(seg) !== seq) return;
+        setTransformSaveSnapshot(seg, { status: 'error', message: 'Save failed - retry?' });
+    }
+}
+
+function scheduleVisualTransformSave(seg) {
+    const currentTimer = transformSaveTimer.get(seg);
+    if (currentTimer) {
+        clearTimeout(currentTimer);
+    }
+    const timerId = setTimeout(() => {
+        transformSaveTimer.delete(seg);
+        saveVisualTransformNow(seg);
+    }, 350);
+    transformSaveTimer.set(seg, timerId);
+}
+
+function getSelectedSegmentIndices() {
+    return Array.from(selectedSegmentIndices)
+        .map((idx) => Number(idx))
+        .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < segments.length)
+        .sort((a, b) => a - b);
+}
+
+function hideBulkInlinePanels() {
+    bulkSourcePanel.classList.remove('open');
+    bulkPresetPanel.classList.remove('open');
+    bulkResetPanel.classList.remove('open');
+}
+
+function hideBulkToast() {
+    if (bulkToastTimer) {
+        clearTimeout(bulkToastTimer);
+        bulkToastTimer = null;
+    }
+    bulkToast.style.display = 'none';
+}
+
+function showBulkToast(message, canUndo = false) {
+    hideBulkToast();
+    bulkToastMessage.textContent = message;
+    bulkToastUndo.style.display = canUndo ? 'inline-flex' : 'none';
+    bulkToast.style.display = 'inline-flex';
+    bulkToastTimer = setTimeout(() => {
+        hideBulkToast();
+    }, canUndo ? 7000 : 3000);
+}
+
+function updateSelectModeUi() {
+    const canSelect = config.mode === 'broll';
+    selectModeBtn.style.display = canSelect ? 'inline-flex' : 'none';
+    if (!canSelect) {
+        selectMode = false;
+        selectedSegmentIndices.clear();
+    }
+
+    selectModeBtn.classList.toggle('active', canSelect && selectMode);
+    selectModeBtn.textContent = canSelect && selectMode ? 'Done selecting' : 'Select segments';
+
+    const selected = getSelectedSegmentIndices();
+    const showBar = canSelect && selectMode && selected.length >= 2;
+    bulkActionBar.style.display = showBar ? 'flex' : 'none';
+    if (showBar) {
+        bulkActionCount.textContent = `${selected.length} selected`;
+    } else {
+        hideBulkInlinePanels();
+    }
+
+    const disableBulk = bulkActionInFlight || selected.length < 2;
+    bulkApplySourceBtn.disabled = disableBulk;
+    bulkApplyPresetBtn.disabled = disableBulk;
+    bulkResetBtn.disabled = disableBulk;
+
+    updatePresetsToolbarUi();
+}
+
+function setSelectMode(nextEnabled) {
+    const enabled = Boolean(nextEnabled) && config.mode === 'broll';
+    selectMode = enabled;
+    if (!enabled) {
+        selectedSegmentIndices.clear();
+        hideBulkInlinePanels();
+    }
+    renderSegList();
+}
+
+function segmentTransformsEqual(a, b) {
+    const aa = normalizeVisualTransformsClient(a);
+    const bb = normalizeVisualTransformsClient(b);
+    return aa.aroll.zoom === bb.aroll.zoom
+        && aa.aroll.posX === bb.aroll.posX
+        && aa.aroll.posY === bb.aroll.posY
+        && aa.broll.zoom === bb.broll.zoom
+        && aa.broll.posX === bb.broll.posX
+        && aa.broll.posY === bb.broll.posY;
+}
+
+async function postBulkVisualTransformUpdates(updates) {
+    const res = await fetch('/api/segments/visual-transform/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+}
+
+async function applyBulkTransformsWithUndo(targetIndices, resolveNextTransforms, successLabel, allowUndo = true) {
+    if (bulkActionInFlight) return;
+
+    const cleanTargets = Array.from(new Set(targetIndices))
+        .map((idx) => Number(idx))
+        .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < segments.length);
+    if (!cleanTargets.length) return;
+
+    const snapshots = {};
+    const pendingUpdates = [];
+
+    cleanTargets.forEach((idx) => {
+        const seg = segments[idx];
+        const prev = cloneTransforms(ensureSegmentVisualTransforms(seg));
+        const nextRaw = resolveNextTransforms(idx, seg);
+        const next = normalizeVisualTransformsClient(nextRaw);
+        if (segmentTransformsEqual(prev, next)) {
+            return;
+        }
+        snapshots[idx] = prev;
+        seg.visual_transforms = next;
+        transformUndoSnapshot.set(seg, prev);
+        updateTransformUi(seg);
+        pendingUpdates.push({ segmentIndex: idx, visualTransforms: next });
+    });
+
+    if (!pendingUpdates.length) {
+        showBulkToast('No transform changes to apply.');
+        return;
+    }
+
+    bulkActionInFlight = true;
+    updateSelectModeUi();
+    renderSegList();
+
+    try {
+        const response = await postBulkVisualTransformUpdates(pendingUpdates);
+        const successCount = Array.isArray(response.results)
+            ? response.results.filter((r) => r && r.ok).length
+            : pendingUpdates.length;
+
+        if (allowUndo) {
+            bulkUndoPayload = {
+                snapshots,
+                count: successCount,
+                label: successLabel,
+            };
+        }
+        showBulkToast(`${successCount} segments updated.`, allowUndo);
+    } catch (err) {
+        Object.entries(snapshots).forEach(([idxStr, transforms]) => {
+            const idx = Number(idxStr);
+            const seg = segments[idx];
+            if (!seg) return;
+            seg.visual_transforms = normalizeVisualTransformsClient(transforms);
+            updateTransformUi(seg);
+        });
+        showBulkToast(`Bulk update failed: ${err.message}`);
+    } finally {
+        bulkActionInFlight = false;
+        hideBulkInlinePanels();
+        renderSegList();
+    }
+}
+
+async function undoLastBulkAction() {
+    if (!bulkUndoPayload || bulkActionInFlight) return;
+    const snapshots = bulkUndoPayload.snapshots || {};
+    const targetIndices = Object.keys(snapshots).map((k) => Number(k)).filter((k) => Number.isInteger(k));
+    if (!targetIndices.length) return;
+
+    const payload = bulkUndoPayload;
+    bulkUndoPayload = null;
+    hideBulkToast();
+
+    await applyBulkTransformsWithUndo(
+        targetIndices,
+        (idx) => snapshots[idx],
+        `Undo ${payload.label || 'bulk change'}`,
+        false,
+    );
+    showBulkToast('Undo applied.');
+}
+
+function openBulkSourcePanel() {
+    const selected = getSelectedSegmentIndices();
+    if (selected.length < 2) return;
+
+    hideBulkInlinePanels();
+    bulkSourceSelect.innerHTML = '';
+    selected.forEach((idx) => {
+        const seg = segments[idx];
+        const opt = document.createElement('option');
+        opt.value = String(idx);
+        opt.textContent = `${seg?.name || `Segment ${idx + 1}`} (#${idx + 1})`;
+        bulkSourceSelect.appendChild(opt);
+    });
+    bulkSourcePanel.classList.add('open');
+}
+
+async function applyFromSelectedSource() {
+    const sourceIdx = Number(bulkSourceSelect.value);
+    if (!Number.isInteger(sourceIdx) || !segments[sourceIdx]) return;
+    const source = ensureSegmentVisualTransforms(segments[sourceIdx]);
+    const targets = getSelectedSegmentIndices().filter((idx) => idx !== sourceIdx && canEditTransformsForSegment(segments[idx]));
+    await applyBulkTransformsWithUndo(targets, () => source, 'Apply transforms from source');
+}
+
+async function openBulkPresetPanel() {
+    const selected = getSelectedSegmentIndices();
+    if (selected.length < 2) return;
+
+    hideBulkInlinePanels();
+    bulkPresetSelect.innerHTML = '';
+    bulkPresetNote.textContent = 'Loading presets...';
+    bulkPresetConfirm.disabled = true;
+    bulkPresetPanel.classList.add('open');
+
+    const firstSeg = segments[selected[0]];
+    const formatName = normalizeBrollFormat(firstSeg?.broll_format);
+
+    try {
+        const res = await fetch(`/api/presets?format=${encodeURIComponent(formatName)}`);
+        const data = await res.json();
+        const presets = Array.isArray(data.presets) ? data.presets : [];
+
+        if (!presets.length) {
+            bulkPresetNote.textContent = `No presets found for ${formatName}.`;
+            bulkPresetConfirm.disabled = true;
+            return;
+        }
+
+        presets.forEach((preset, idx) => {
+            const opt = document.createElement('option');
+            opt.value = String(idx);
+            opt.textContent = String(preset.name || `Preset ${idx + 1}`);
+            bulkPresetSelect.appendChild(opt);
+        });
+
+        bulkPresetSelect.dataset.formatName = formatName;
+        bulkPresetSelect.dataset.presetsJson = JSON.stringify(presets);
+        bulkPresetConfirm.disabled = false;
+        bulkPresetNote.textContent = `Applying to selected segments with format: ${formatName}`;
+    } catch (err) {
+        bulkPresetNote.textContent = `Failed to load presets: ${err.message}`;
+        bulkPresetConfirm.disabled = true;
+    }
+}
+
+async function applySelectedPresetToChecked() {
+    const presets = JSON.parse(bulkPresetSelect.dataset.presetsJson || '[]');
+    const formatName = String(bulkPresetSelect.dataset.formatName || '');
+    const presetIdx = Number(bulkPresetSelect.value);
+    const preset = presets[presetIdx];
+    if (!preset) return;
+
+    const selected = getSelectedSegmentIndices();
+    const targets = selected.filter((idx) => {
+        const seg = segments[idx];
+        return canEditTransformsForSegment(seg) && normalizeBrollFormat(seg.broll_format) === formatName;
+    });
+
+    await applyBulkTransformsWithUndo(
+        targets,
+        () => ({ aroll: preset.aroll, broll: preset.broll }),
+        `Apply preset ${preset.name || ''}`,
+    );
+}
+
+async function resetSelectedTransforms() {
+    const targets = getSelectedSegmentIndices().filter((idx) => canEditTransformsForSegment(segments[idx]));
+    await applyBulkTransformsWithUndo(targets, () => DEFAULT_VISUAL_TRANSFORMS, 'Reset selected');
+}
+
+function formatPresetDate(isoText) {
+    if (!isoText) return 'unknown date';
+    const date = new Date(isoText);
+    if (Number.isNaN(date.getTime())) return String(isoText);
+    return date.toLocaleString();
+}
+
+function getToolbarReferenceFormat() {
+    const activeSeg = segments[activeIdx];
+    if (activeSeg && config.mode === 'broll') {
+        return normalizeBrollFormat(activeSeg.broll_format);
+    }
+    const firstBroll = segments.find((seg) => seg && seg.broll_format != null);
+    if (firstBroll) {
+        return normalizeBrollFormat(firstBroll.broll_format);
+    }
+    return DEFAULT_BROLL_FORMAT;
+}
+
+function getEditableSegmentsByFormat(formatName) {
+    return segments
+        .map((seg, idx) => ({ seg, idx }))
+        .filter(({ seg }) => canEditTransformsForSegment(seg) && normalizeBrollFormat(seg.broll_format) === formatName);
+}
+
+function closePresetsPopover() {
+    presetsPopoverOpen = false;
+    presetsBtn.classList.remove('active');
+    presetsPopover.classList.remove('open');
+}
+
+function openPresetsPopover() {
+    presetsPopoverOpen = true;
+    presetsBtn.classList.add('active');
+    presetsPopover.classList.add('open');
+    loadPresetsForActiveFormat();
+}
+
+function clearPresetSavePanel() {
+    presetSavePanel.classList.remove('open');
+    presetSaveNote.textContent = '';
+    presetSaveNote.classList.remove('error');
+    presetConflict.style.display = 'none';
+    presetConflictNote.classList.remove('error');
+    pendingPresetConflictPayload = null;
+}
+
+function updatePresetsToolbarUi() {
+    const enabled = config.mode === 'broll' && segments.length > 0;
+    toolbarFormatWrap.style.display = enabled ? 'inline-flex' : 'none';
+    presetsWrap.style.display = enabled ? 'block' : 'none';
+
+    if (!enabled) {
+        closePresetsPopover();
+        clearPresetSavePanel();
+        return;
+    }
+
+    const nextFormat = getToolbarReferenceFormat();
+    const prevFormat = toolbarActiveFormat;
+    toolbarActiveFormat = nextFormat;
+
+    if (!toolbarFormatSelect.options.length) {
+        BROLL_FORMAT_OPTIONS.forEach((fmtOpt) => {
+            const opt = document.createElement('option');
+            opt.value = fmtOpt;
+            opt.textContent = fmtOpt;
+            toolbarFormatSelect.appendChild(opt);
+        });
+    }
+    toolbarFormatSelect.value = toolbarActiveFormat;
+    presetsCurrentFormat.textContent = toolbarActiveFormat;
+
+    if (presetsPopoverOpen && prevFormat !== toolbarActiveFormat) {
+        loadPresetsForActiveFormat();
+    }
+}
+
+function renderPresetsList(presets) {
+    presetsList.innerHTML = '';
+    presetsCache = Array.isArray(presets) ? presets : [];
+    presetsEmpty.style.display = presetsCache.length ? 'none' : 'block';
+
+    presetsCache.forEach((preset, idx) => {
+        const row = document.createElement('div');
+        row.className = 'preset-row';
+
+        const meta = document.createElement('div');
+        meta.className = 'preset-meta';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'preset-name';
+        nameEl.textContent = String(preset.name || `Preset ${idx + 1}`);
+
+        const dateEl = document.createElement('div');
+        dateEl.className = 'preset-date';
+        dateEl.textContent = `Created ${formatPresetDate(preset.createdAt)}`;
+
+        meta.append(nameEl, dateEl);
+
+        const actions = document.createElement('div');
+        actions.className = 'preset-actions';
+
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'preset-action-btn';
+        applyBtn.textContent = 'Apply to all';
+        applyBtn.addEventListener('click', async () => {
+            const targets = getEditableSegmentsByFormat(toolbarActiveFormat).map(({ idx: segIdx }) => segIdx);
+            await applyBulkTransformsWithUndo(
+                targets,
+                () => ({ aroll: preset.aroll, broll: preset.broll }),
+                `Apply preset ${preset.name || ''}`,
+            );
+            if (presetsPopoverOpen) {
+                loadPresetsForActiveFormat();
+            }
+        });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'preset-action-btn delete';
+        deleteBtn.textContent = '🗑';
+        deleteBtn.title = 'Delete preset';
+        deleteBtn.addEventListener('click', async () => {
+            const presetName = String(preset.name || '').trim();
+            if (!presetName) return;
+            if (!window.confirm(`Delete preset "${presetName}"?`)) return;
+            try {
+                const res = await fetch('/api/presets', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ format: toolbarActiveFormat, name: presetName }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
+                presetsLoadNote.textContent = 'Preset deleted.';
+                presetsLoadNote.classList.remove('error');
+                await loadPresetsForActiveFormat();
+            } catch (err) {
+                presetsLoadNote.textContent = `Failed to delete preset: ${err.message}`;
+                presetsLoadNote.classList.add('error');
+            }
+        });
+
+        actions.append(applyBtn, deleteBtn);
+        row.append(meta, actions);
+        presetsList.appendChild(row);
+    });
+}
+
+async function loadPresetsForActiveFormat() {
+    const token = ++presetsLoadToken;
+    presetsLoadNote.textContent = 'Loading presets...';
+    presetsLoadNote.classList.remove('error');
+    presetsCurrentFormat.textContent = toolbarActiveFormat;
+
+    try {
+        const res = await fetch(`/api/presets?format=${encodeURIComponent(toolbarActiveFormat)}`);
+        const data = await res.json();
+        if (token !== presetsLoadToken) return;
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        renderPresetsList(Array.isArray(data.presets) ? data.presets : []);
+        presetsLoadNote.textContent = '';
+    } catch (err) {
+        if (token !== presetsLoadToken) return;
+        presetsCache = [];
+        presetsList.innerHTML = '';
+        presetsEmpty.style.display = 'none';
+        presetsLoadNote.textContent = `Failed to load presets: ${err.message}`;
+        presetsLoadNote.classList.add('error');
+    }
+}
+
+function openPresetSavePanel() {
+    clearPresetSavePanel();
+    presetSavePanel.classList.add('open');
+    presetNameInput.value = '';
+    presetNameInput.focus();
+
+    const candidates = getEditableSegmentsByFormat(toolbarActiveFormat)
+        .filter(({ seg }) => !transformsAreDefault(seg.visual_transforms));
+    const fallback = getEditableSegmentsByFormat(toolbarActiveFormat);
+    const refs = candidates.length ? candidates : fallback;
+
+    if (!refs.length) {
+        presetRefRow.style.display = 'none';
+        presetSaveNote.textContent = `No segments available for ${toolbarActiveFormat}.`;
+        presetSaveNote.classList.add('error');
+        return;
+    }
+
+    presetRefSelect.innerHTML = '';
+    refs.forEach(({ seg, idx }) => {
+        const opt = document.createElement('option');
+        opt.value = String(idx);
+        opt.textContent = `${seg.name || `Segment ${idx + 1}`} (#${idx + 1})`;
+        presetRefSelect.appendChild(opt);
+    });
+
+    if (refs.length > 1) {
+        presetRefRow.style.display = 'flex';
+        presetSaveNote.textContent = 'Multiple candidate segments found. Choose a reference segment.';
+        presetSaveNote.classList.remove('error');
+    } else {
+        presetRefRow.style.display = 'none';
+        presetSaveNote.textContent = `Using ${refs[0].seg.name || `Segment ${refs[0].idx + 1}`} as reference.`;
+        presetSaveNote.classList.remove('error');
+    }
+}
+
+function buildPresetPayloadFromSelection() {
+    const name = String(presetNameInput.value || '').trim();
+    if (!name) {
+        throw new Error('Preset name is required');
+    }
+
+    let refIdx = Number(presetRefSelect.value);
+    if (!Number.isInteger(refIdx) || !segments[refIdx]) {
+        const fallback = getEditableSegmentsByFormat(toolbarActiveFormat)[0];
+        refIdx = fallback ? fallback.idx : -1;
+    }
+    if (!Number.isInteger(refIdx) || refIdx < 0 || !segments[refIdx]) {
+        throw new Error('No reference segment available');
+    }
+
+    const refSeg = segments[refIdx];
+    const refTransforms = ensureSegmentVisualTransforms(refSeg);
+    return {
+        format: toolbarActiveFormat,
+        name,
+        aroll: refTransforms.aroll,
+        broll: refTransforms.broll,
+    };
+}
+
+async function savePresetWithPayload(payload, allowOverwrite = true) {
+    const res = await fetch('/api/presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+
+    if (res.status === 409 && allowOverwrite) {
+        pendingPresetConflictPayload = payload;
+        presetConflict.style.display = 'block';
+        presetConflictNote.textContent = `Preset "${payload.name}" already exists.`;
+        presetConflictNote.classList.add('error');
+        presetSaveNote.textContent = 'Choose overwrite or rename the preset.';
+        presetSaveNote.classList.remove('error');
+        return false;
+    }
+
+    if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    pendingPresetConflictPayload = null;
+    presetConflict.style.display = 'none';
+    presetSaveNote.textContent = 'Preset saved.';
+    presetSaveNote.classList.remove('error');
+    await loadPresetsForActiveFormat();
+    return true;
+}
+
+async function submitPresetSave() {
+    presetSaveNote.classList.remove('error');
+    try {
+        const payload = buildPresetPayloadFromSelection();
+        await savePresetWithPayload(payload, true);
+    } catch (err) {
+        presetSaveNote.textContent = String(err.message || err);
+        presetSaveNote.classList.add('error');
+    }
+}
+
+async function overwritePresetAfterConflict() {
+    if (!pendingPresetConflictPayload) return;
+    const payload = pendingPresetConflictPayload;
+    presetSaveNote.classList.remove('error');
+    try {
+        const delRes = await fetch('/api/presets', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ format: payload.format, name: payload.name }),
+        });
+        const delData = await delRes.json();
+        if (!delRes.ok || !delData.ok) {
+            throw new Error(delData.error || `HTTP ${delRes.status}`);
+        }
+        await savePresetWithPayload(payload, false);
+    } catch (err) {
+        presetSaveNote.textContent = `Failed to overwrite preset: ${err.message}`;
+        presetSaveNote.classList.add('error');
+    }
+}
+
 /* ── Segment list ──────────────────────────────────────────── */
 function renderSegList() {
+    closeOverflowMenu();
     if (config.mode === 'broll') {
         ensureBrollAssignments();
         for (let k = 0; k < segments.length; k++) {
@@ -1588,14 +3289,22 @@ function renderSegList() {
         ensureArollSegmentIndices();
     }
 
+    updateSelectModeUi();
+
     segList.innerHTML = '';
     if (segments.length === 0) {
         segList.innerHTML = '<div id="empty-state"><p>No segments yet.</p><p>Click <b>+</b> to add one.</p></div>';
         return;
     }
     segments.forEach((seg, i) => {
+        if (config.mode === 'broll') {
+            ensureSegmentVisualTransforms(seg);
+        }
         const item = document.createElement('div');
         item.className = 'seg-item' + (i === activeIdx ? ' active' : '');
+        if (selectMode && config.mode === 'broll') {
+            item.classList.add('select-mode');
+        }
         item.dataset.idx = i;
 
         /* ── Main row ──────────────────────────────────── */
@@ -1629,6 +3338,9 @@ function renderSegList() {
             if (from >= 0 && from !== to) {
                 const [moved] = segments.splice(from, 1);
                 segments.splice(to, 0, moved);
+                if (selectMode) {
+                    selectedSegmentIndices.clear();
+                }
                 if (activeIdx === from) activeIdx = to;
                 else if (from < activeIdx && to >= activeIdx) activeIdx--;
                 else if (from > activeIdx && to <= activeIdx) activeIdx++;
@@ -1640,6 +3352,26 @@ function renderSegList() {
         const dot = document.createElement('span');
         dot.className = 'seg-dot';
         dot.style.background = color(i);
+
+        let selectBox = null;
+        if (selectMode && config.mode === 'broll') {
+            selectBox = document.createElement('input');
+            selectBox.type = 'checkbox';
+            selectBox.className = 'seg-select-checkbox';
+            selectBox.checked = selectedSegmentIndices.has(i);
+            selectBox.title = 'Select segment for bulk transform actions';
+            selectBox.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+            selectBox.addEventListener('change', () => {
+                if (selectBox.checked) {
+                    selectedSegmentIndices.add(i);
+                } else {
+                    selectedSegmentIndices.delete(i);
+                }
+                renderSegList();
+            });
+        }
 
         // Name input
         const nameIn = document.createElement('input');
@@ -1681,10 +3413,22 @@ function renderSegList() {
         rmBtn.addEventListener('click', e => {
             e.stopPropagation();
             segments.splice(i, 1);
+            if (selectedSegmentIndices.has(i)) {
+                selectedSegmentIndices.delete(i);
+            }
+            const shifted = new Set();
+            selectedSegmentIndices.forEach((idx) => {
+                shifted.add(idx > i ? idx - 1 : idx);
+            });
+            selectedSegmentIndices.clear();
+            shifted.forEach((idx) => selectedSegmentIndices.add(idx));
             if (activeIdx >= segments.length) activeIdx = segments.length - 1;
             renderSegList(); renderTlSegs(); scheduleSave();
         });
 
+        if (selectBox) {
+            row.append(selectBox);
+        }
         row.append(handle, dot, nameIn, times, durEl, rmBtn);
         item.appendChild(row);
 
@@ -1738,6 +3482,158 @@ function renderSegList() {
         acts.appendChild(mkBtn('', '▶ Play Seg', () => {
             playSegmentPrecisely(seg);
         }));
+
+        if (config.mode === 'broll') {
+            const supportsTransforms = canEditTransformsForSegment(seg);
+            if (!supportsTransforms) {
+                transformPanelOpen.set(seg, false);
+            }
+
+            const transformBtn = mkBtn('transform-toggle', 'Transform', (e) => {
+                e.stopPropagation();
+                if (!supportsTransforms) return;
+                const nextOpen = !Boolean(transformPanelOpen.get(seg));
+                transformPanelOpen.set(seg, nextOpen);
+                renderSegList();
+            });
+            transformBtn.disabled = !supportsTransforms;
+            transformBtn.title = supportsTransforms
+                ? 'Show or hide visual transforms'
+                : 'Transforms are currently supported only for Half-And-Half Split';
+
+            const editedDot = document.createElement('span');
+            editedDot.className = 'transform-edited-dot';
+            editedDot.style.display = 'none';
+            transformBtn.appendChild(editedDot);
+            acts.appendChild(transformBtn);
+
+            const overflowWrap = document.createElement('div');
+            overflowWrap.className = 'seg-overflow-wrap';
+
+            let undoActionBtn = null;
+
+            const refreshUndoActionState = () => {
+                if (!undoActionBtn) return;
+                undoActionBtn.disabled = !transformUndoSnapshot.has(seg);
+            };
+
+            const overflowBtn = mkBtn('overflow-btn', '⋯', (e) => {
+                e.stopPropagation();
+                refreshUndoActionState();
+                toggleOverflowMenu(overflowMenu);
+            });
+            overflowBtn.title = 'More transform actions';
+
+            const overflowMenu = document.createElement('div');
+            overflowMenu.className = 'overflow-menu';
+
+            const makeOverflowAction = (label, onClick, disabled = false) => {
+                const btn = document.createElement('button');
+                btn.className = 'overflow-action';
+                btn.textContent = label;
+                btn.disabled = disabled;
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    onClick();
+                });
+                overflowMenu.appendChild(btn);
+                return btn;
+            };
+
+            const confirmBox = document.createElement('div');
+            confirmBox.className = 'overflow-confirm';
+            confirmBox.style.display = 'none';
+
+            const confirmLabel = document.createElement('span');
+            const confirmActions = document.createElement('div');
+            confirmActions.className = 'overflow-confirm-actions';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'overflow-confirm-btn confirm';
+            confirmBtn.textContent = 'Confirm';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'overflow-confirm-btn';
+            cancelBtn.textContent = 'Cancel';
+
+            let pendingConfirmFn = null;
+            const hideConfirm = () => {
+                pendingConfirmFn = null;
+                confirmBox.style.display = 'none';
+            };
+            const showConfirm = (label, fn) => {
+                pendingConfirmFn = fn;
+                confirmLabel.textContent = `${label}?`;
+                confirmBox.style.display = 'flex';
+            };
+
+            confirmBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (!pendingConfirmFn) return;
+                pendingConfirmFn();
+                hideConfirm();
+                closeOverflowMenu();
+                renderSegList();
+            });
+            cancelBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                hideConfirm();
+            });
+
+            confirmActions.append(confirmBtn, cancelBtn);
+            confirmBox.append(confirmLabel, confirmActions);
+
+            undoActionBtn = makeOverflowAction('Undo last change', () => {
+                applyTransformUndo(seg);
+                closeOverflowMenu();
+                renderSegList();
+            });
+            refreshUndoActionState();
+            makeOverflowAction('Reset A-Roll', () => {
+                showConfirm('Reset A-Roll', () => applyLayerReset(seg, 'aroll'));
+            });
+            makeOverflowAction('Reset B-Roll', () => {
+                showConfirm('Reset B-Roll', () => applyLayerReset(seg, 'broll'));
+            });
+            makeOverflowAction('Reset Both', () => {
+                showConfirm('Reset both layers', () => applyAllReset(seg));
+            });
+            makeOverflowAction('Copy A→B', () => {
+                applyLayerCopy(seg, 'aroll', 'broll');
+                closeOverflowMenu();
+                renderSegList();
+            });
+            makeOverflowAction('Copy B→A', () => {
+                applyLayerCopy(seg, 'broll', 'aroll');
+                closeOverflowMenu();
+                renderSegList();
+            });
+
+            overflowMenu.appendChild(confirmBox);
+            overflowWrap.append(overflowBtn, overflowMenu);
+            acts.appendChild(overflowWrap);
+
+            const saveStatusEl = document.createElement('span');
+            saveStatusEl.className = 'transform-save-status';
+            acts.appendChild(saveStatusEl);
+
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'retry-btn';
+            retryBtn.textContent = 'Retry';
+            retryBtn.style.display = 'none';
+            retryBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                saveVisualTransformNow(seg);
+            });
+            acts.appendChild(retryBtn);
+
+            transformUiRefs.set(seg, {
+                editedDot,
+                statusEl: saveStatusEl,
+                retryBtn,
+            });
+            updateTransformUi(seg);
+        }
         
         /* ── A-Roll: Partition button ──────────────────── */
         if (config.mode === 'aroll') {
@@ -1824,6 +3720,10 @@ function renderSegList() {
             });
             fmtSel.addEventListener('change', () => {
                 seg.broll_format = normalizeBrollFormat(fmtSel.value);
+                if (!canEditTransformsForSegment(seg)) {
+                    transformPanelOpen.set(seg, false);
+                }
+                renderSegList();
                 scheduleSave();
             });
             arow.append(fmtLbl, fmtSel);
@@ -1851,6 +3751,103 @@ function renderSegList() {
                 arow.appendChild(w);
             }
             item.appendChild(arow);
+        }
+
+        if (config.mode === 'broll') {
+            const supportsTransforms = canEditTransformsForSegment(seg);
+            const panelOpen = Boolean(transformPanelOpen.get(seg));
+
+            if (!supportsTransforms) {
+                const unsupportedNote = document.createElement('div');
+                unsupportedNote.className = 'transform-unsupported-note';
+                unsupportedNote.textContent = 'Transform controls are available for Half-And-Half Split only.';
+                item.appendChild(unsupportedNote);
+            }
+
+            if (supportsTransforms && panelOpen) {
+                const panel = document.createElement('div');
+                panel.className = 'transform-panel';
+
+                const makeGroup = (layerKey, label) => {
+                    const group = document.createElement('div');
+                    group.className = 'transform-group';
+
+                    const groupLabel = document.createElement('div');
+                    groupLabel.className = 'transform-group-label';
+                    groupLabel.textContent = label;
+                    group.appendChild(groupLabel);
+
+                    const addField = (fieldKey, fieldLabel) => {
+                        const limits = TRANSFORM_LIMITS[fieldKey];
+                        const rowEl = document.createElement('div');
+                        rowEl.className = 'transform-field';
+
+                        const labelEl = document.createElement('label');
+                        labelEl.className = 'transform-field-label';
+                        labelEl.textContent = fieldLabel;
+
+                        const slider = document.createElement('input');
+                        slider.className = 'transform-slider';
+                        slider.type = 'range';
+                        slider.min = String(limits.min);
+                        slider.max = String(limits.max);
+                        slider.step = String(limits.step);
+
+                        const number = document.createElement('input');
+                        number.className = 'transform-number';
+                        number.type = 'number';
+                        number.min = String(limits.min);
+                        number.max = String(limits.max);
+                        number.step = String(limits.step);
+
+                        const syncDisplay = () => {
+                            const v = ensureSegmentVisualTransforms(seg)[layerKey][fieldKey];
+                            slider.value = String(v);
+                            number.value = Number(v).toFixed(limits.decimals);
+                        };
+
+                        const applyValue = (rawValue) => {
+                            const parsed = Number(rawValue);
+                            if (!Number.isFinite(parsed)) {
+                                syncDisplay();
+                                return;
+                            }
+                            const nextVal = clamp(parsed, limits.min, limits.max);
+                            setTransformValue(seg, layerKey, fieldKey, nextVal);
+                            syncDisplay();
+                        };
+
+                        slider.addEventListener('input', () => {
+                            applyValue(slider.value);
+                        });
+                        number.addEventListener('change', () => {
+                            applyValue(number.value);
+                        });
+                        number.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                applyValue(number.value);
+                            }
+                        });
+                        number.addEventListener('blur', () => {
+                            syncDisplay();
+                        });
+
+                        syncDisplay();
+                        rowEl.append(labelEl, slider, number);
+                        group.appendChild(rowEl);
+                    };
+
+                    addField('zoom', 'Zoom');
+                    addField('posX', 'X');
+                    addField('posY', 'Y');
+                    return group;
+                };
+
+                panel.appendChild(makeGroup('aroll', 'A-Roll'));
+                panel.appendChild(makeGroup('broll', 'B-Roll'));
+                item.appendChild(panel);
+            }
         }
 
         /* ── Click to activate ─────────────────────────── */
@@ -1916,6 +3913,7 @@ addBtn.addEventListener('click', () => {
     const s = { name: `Segment ${segments.length + 1}`, start: null, end: null };
     if (config.mode === 'broll') {
         s.broll_format = DEFAULT_BROLL_FORMAT;
+        s.visual_transforms = normalizeVisualTransformsClient(DEFAULT_VISUAL_TRANSFORMS);
         if (STRICT_UNIQUE_AROLL_BINDING) {
             const used = new Set();
             segments.forEach(seg => {
@@ -1942,6 +3940,115 @@ addBtn.addEventListener('click', () => {
     renderSegList(); renderTlSegs(); scheduleSave();
 });
 
+selectModeBtn.addEventListener('click', () => {
+    setSelectMode(!selectMode);
+});
+
+toolbarFormatSelect.addEventListener('change', () => {
+    toolbarActiveFormat = normalizeBrollFormat(toolbarFormatSelect.value);
+    presetsCurrentFormat.textContent = toolbarActiveFormat;
+    if (presetsPopoverOpen) {
+        loadPresetsForActiveFormat();
+    }
+});
+
+presetsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (presetsPopoverOpen) {
+        closePresetsPopover();
+    } else {
+        openPresetsPopover();
+    }
+});
+
+presetSaveToggle.addEventListener('click', () => {
+    if (presetSavePanel.classList.contains('open')) {
+        clearPresetSavePanel();
+    } else {
+        openPresetSavePanel();
+    }
+});
+
+presetSaveCancel.addEventListener('click', () => {
+    clearPresetSavePanel();
+});
+
+presetSaveConfirm.addEventListener('click', async () => {
+    await submitPresetSave();
+});
+
+presetOverwriteBtn.addEventListener('click', async () => {
+    await overwritePresetAfterConflict();
+});
+
+presetRenameBtn.addEventListener('click', () => {
+    presetConflict.style.display = 'none';
+    pendingPresetConflictPayload = null;
+    presetSaveNote.textContent = 'Enter a new name and save again.';
+    presetSaveNote.classList.remove('error');
+    presetNameInput.focus();
+    presetNameInput.select();
+});
+
+presetNameInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        await submitPresetSave();
+    }
+});
+
+document.addEventListener('click', (e) => {
+    if (!presetsPopoverOpen) return;
+    if (presetsWrap.contains(e.target)) return;
+    closePresetsPopover();
+    clearPresetSavePanel();
+});
+
+bulkApplySourceBtn.addEventListener('click', () => {
+    openBulkSourcePanel();
+});
+
+bulkSourceCancel.addEventListener('click', () => {
+    hideBulkInlinePanels();
+});
+
+bulkSourceConfirm.addEventListener('click', async () => {
+    await applyFromSelectedSource();
+});
+
+bulkApplyPresetBtn.addEventListener('click', async () => {
+    await openBulkPresetPanel();
+});
+
+bulkPresetCancel.addEventListener('click', () => {
+    hideBulkInlinePanels();
+});
+
+bulkPresetConfirm.addEventListener('click', async () => {
+    await applySelectedPresetToChecked();
+});
+
+bulkResetBtn.addEventListener('click', () => {
+    hideBulkInlinePanels();
+    bulkResetPanel.classList.add('open');
+});
+
+bulkResetCancel.addEventListener('click', () => {
+    hideBulkInlinePanels();
+});
+
+bulkResetConfirm.addEventListener('click', async () => {
+    await resetSelectedTransforms();
+});
+
+bulkToastUndo.addEventListener('click', async () => {
+    await undoLastBulkAction();
+});
+
+bulkToastClose.addEventListener('click', () => {
+    hideBulkToast();
+});
+
 /* ── Keyboard shortcuts ────────────────────────────────────── */
 document.addEventListener('keydown', e => {
     if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
@@ -1963,6 +4070,13 @@ document.getElementById('btn-prev').addEventListener('click', () => stepFrame(-1
 document.getElementById('btn-next').addEventListener('click', () => stepFrame(1));
 saveBtn.addEventListener('click', () => { saveSegments(true); });
 remotionGenerateBtn.addEventListener('click', () => { generateAndOpenStudio(); });
+studioSaveBtn.addEventListener('click', () => { saveStudioTweaksFromServerProps(); });
+studioImportToggle.addEventListener('click', () => { toggleStudioImportPanel(); });
+studioImportSaveBtn.addEventListener('click', () => { saveStudioTweaksFromImportedJson(); });
+studioImportClearBtn.addEventListener('click', () => {
+    studioImportText.value = '';
+    setStudioImportNote('');
+});
 
 /* ── Partition modal event listeners ──────────────────────── */
 document.getElementById('partition-modal-close').addEventListener('click', closePartitionModal);

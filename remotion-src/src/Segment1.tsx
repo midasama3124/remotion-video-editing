@@ -3,7 +3,12 @@ import React from "react";
 import { staticFile } from "remotion";
 import { HalfAndHalf } from "./layouts/HalfAndHalf";
 
-export const Segment1: React.FC<{ splitRatio: number }> = ({ splitRatio }) => (
+type SegmentTransforms = {
+    aroll: { zoom: number; posX: number; posY: number };
+    broll: { zoom: number; posX: number; posY: number };
+};
+
+export const Segment1: React.FC<{ splitRatio: number; visualTransforms: SegmentTransforms }> = ({ splitRatio, visualTransforms }) => (
   <HalfAndHalf
         arollSrc={staticFile("sports_production_aroll_seg001.mp4")}
         brollSrc={staticFile("sports_production_broll_seg001.mp4")}
@@ -11,6 +16,8 @@ export const Segment1: React.FC<{ splitRatio: number }> = ({ splitRatio }) => (
     brollTrimStart={0}
     durationSec={2.835}
     splitRatio={splitRatio}
+        arollTransform={visualTransforms.aroll}
+        brollTransform={visualTransforms.broll}
     fps={30}
   />
 );

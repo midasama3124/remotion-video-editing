@@ -22,6 +22,22 @@ SESSION_BACKUP = WORKSPACE / ".trimmer_ui_session_backup.json"
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mkv"}
 FPS = 30
 
+ZOOM_MIN = 0.5
+ZOOM_MAX = 2.0
+POSITION_MIN = -600.0
+POSITION_MAX = 600.0
+
+DEFAULT_LAYER_TRANSFORM = {
+    "zoom": 1.0,
+    "posX": 0.0,
+    "posY": 0.0,
+}
+
+DEFAULT_VISUAL_TRANSFORMS = {
+    "aroll": dict(DEFAULT_LAYER_TRANSFORM),
+    "broll": dict(DEFAULT_LAYER_TRANSFORM),
+}
+
 FORMAT_MAP = {
     "Half-And-Half Split": "half_and_half",
 }
@@ -95,6 +111,41 @@ def normalize_aroll_json(data: dict) -> dict:
     }
 
 
+def _safe_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _normalize_layer_transform(layer: dict | None) -> dict:
+    layer = layer if isinstance(layer, dict) else {}
+    return {
+        "zoom": round(_clamp(_safe_float(layer.get("zoom"), 1.0), ZOOM_MIN, ZOOM_MAX), 4),
+        "posX": round(_clamp(_safe_float(layer.get("posX"), 0.0), POSITION_MIN, POSITION_MAX), 3),
+        "posY": round(_clamp(_safe_float(layer.get("posY"), 0.0), POSITION_MIN, POSITION_MAX), 3),
+    }
+
+
+def normalize_visual_transforms(transforms: dict | None) -> dict:
+    """
+    Normalize and clamp visual transforms for one B-Roll segment.
+    """
+    transforms = transforms if isinstance(transforms, dict) else {}
+    return {
+        "aroll": _normalize_layer_transform(transforms.get("aroll")),
+        "broll": _normalize_layer_transform(transforms.get("broll")),
+    }
+
+
+def normalize_split_ratio(value, default: float = 0.5) -> float:
+    return round(_clamp(_safe_float(value, default), 0.0, 1.0), 4)
+
+
 def normalize_broll_json(data: dict) -> dict:
     """
     Ensure B-Roll JSON has aroll_partition_index field on all segments.
@@ -119,6 +170,8 @@ def normalize_broll_json(data: dict) -> dict:
             "aroll_segment_name": seg.get("aroll_segment_name"),
             "max_duration": seg.get("max_duration"),
             "broll_format": seg.get("broll_format", "Half-And-Half Split"),
+            "splitRatio": normalize_split_ratio(seg.get("splitRatio"), 0.5),
+            "visual_transforms": normalize_visual_transforms(seg.get("visual_transforms")),
         }
         # Ensure aroll_partition_index field; defaults to 0 if missing
         if "aroll_partition_index" in seg:
@@ -350,6 +403,80 @@ def normalize_session(project: str, mode: str, video_filename: str) -> dict:
     }
 
 
+def _normalize_preset_item(preset: dict) -> dict | None:
+    if not isinstance(preset, dict):
+        return None
+
+    name = str(preset.get("name", "")).strip()
+    if not name:
+        return None
+
+    created_at = str(preset.get("createdAt", "")).strip()
+    if not created_at:
+        created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    return {
+        "name": name,
+        "aroll": _normalize_layer_transform(preset.get("aroll")),
+        "broll": _normalize_layer_transform(preset.get("broll")),
+        "createdAt": created_at,
+    }
+
+
+def normalize_backup_presets(raw_presets: dict | None) -> dict:
+    if not isinstance(raw_presets, dict):
+        return {}
+
+    normalized: dict[str, list[dict]] = {}
+    for format_name, presets in raw_presets.items():
+        key = str(format_name).strip()
+        if not key:
+            continue
+        if not isinstance(presets, list):
+            normalized[key] = []
+            continue
+
+        clean_list: list[dict] = []
+        for preset in presets:
+            item = _normalize_preset_item(preset)
+            if item is not None:
+                clean_list.append(item)
+        normalized[key] = clean_list
+
+    return normalized
+
+
+def normalize_backup_data(data: dict | None) -> dict:
+    data = data if isinstance(data, dict) else {}
+    session = normalize_session(
+        data.get("project", ""),
+        data.get("mode", "aroll"),
+        data.get("videoFilename", ""),
+    )
+    session["presets"] = normalize_backup_presets(data.get("presets"))
+    return session
+
+
+def load_backup_data() -> dict | None:
+    if not SESSION_BACKUP.exists():
+        return None
+    try:
+        raw = json.loads(SESSION_BACKUP.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    normalized = normalize_backup_data(raw)
+    # Keep legacy files forward-compatible by injecting missing presets key.
+    if raw.get("presets") != normalized.get("presets") or "presets" not in raw:
+        try:
+            SESSION_BACKUP.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), "utf-8")
+        except OSError:
+            pass
+    return normalized
+
+
 def choose_default_session() -> dict:
     projects = list_projects()
     if not projects:
@@ -368,13 +495,8 @@ def choose_default_session() -> dict:
 
 
 def load_backup_session() -> dict | None:
-    if not SESSION_BACKUP.exists():
-        return None
-    try:
-        data = json.loads(SESSION_BACKUP.read_text("utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict):
+    data = load_backup_data()
+    if data is None:
         return None
     return normalize_session(
         data.get("project", ""),
@@ -384,7 +506,133 @@ def load_backup_session() -> dict | None:
 
 
 def save_backup_session(session: dict) -> None:
-    SESSION_BACKUP.write_text(json.dumps(session, ensure_ascii=False, indent=2), "utf-8")
+    existing = load_backup_data() or {"presets": {}}
+    normalized_session = normalize_session(
+        session.get("project", ""),
+        session.get("mode", "aroll"),
+        session.get("videoFilename", ""),
+    )
+    existing.update(normalized_session)
+    existing["presets"] = normalize_backup_presets(existing.get("presets"))
+    SESSION_BACKUP.write_text(json.dumps(existing, ensure_ascii=False, indent=2), "utf-8")
+
+
+def read_backup_presets() -> dict:
+    data = load_backup_data()
+    if data is None:
+        return {}
+    return normalize_backup_presets(data.get("presets"))
+
+
+def write_backup_presets(presets: dict) -> None:
+    data = load_backup_data() or normalize_session("", "aroll", "")
+    data["presets"] = normalize_backup_presets(presets)
+    SESSION_BACKUP.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+
+
+def _utc_now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _parse_json_body(handler: http.server.BaseHTTPRequestHandler) -> dict | None:
+    try:
+        content_len = int(handler.headers.get("Content-Length", 0))
+        body = handler.rfile.read(content_len) if content_len > 0 else b"{}"
+        data = json.loads(body)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _broll_segments_file(project_name: str, video_filename: str = "broll_main.mp4") -> Path:
+    return segments_path(WORKSPACE / project_name, video_filename)
+
+
+def load_broll_data_for_project(project_name: str, video_filename: str = "broll_main.mp4") -> tuple[dict, Path]:
+    p = _broll_segments_file(project_name, video_filename)
+    if p.exists():
+        raw = json.loads(p.read_text("utf-8"))
+    else:
+        raw = {
+            "project": project_name,
+            "type": "broll",
+            "video": video_filename,
+            "segments": [],
+        }
+    return normalize_broll_json(raw), p
+
+
+def _normalize_input_props_segment(index: int, raw: dict | None) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    transforms = raw.get("visualTransforms")
+    if transforms is None:
+        transforms = raw.get("visual_transforms")
+    return {
+        "index": index,
+        "splitRatio": normalize_split_ratio(raw.get("splitRatio"), 0.5),
+        "visualTransforms": normalize_visual_transforms(transforms),
+    }
+
+
+def _load_existing_input_props(output_dir: Path) -> dict[int, dict]:
+    input_props_path = output_dir / "inputProps.json"
+    if not input_props_path.is_file():
+        return {}
+    try:
+        raw = json.loads(input_props_path.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    segments = raw.get("segments", []) if isinstance(raw, dict) else []
+    if not isinstance(segments, list):
+        return {}
+
+    by_index: dict[int, dict] = {}
+    for idx, seg in enumerate(segments):
+        if not isinstance(seg, dict):
+            continue
+        index = seg.get("index")
+        if not isinstance(index, int):
+            index = idx
+        if index < 0:
+            continue
+        by_index[index] = _normalize_input_props_segment(index, seg)
+    return by_index
+
+
+def build_remotion_input_props_from_broll(
+    broll_segments: list,
+    existing_input_props: dict[int, dict] | None = None,
+) -> dict:
+    existing_input_props = existing_input_props or {}
+    props_segments: list[dict] = []
+
+    for idx, bseg in enumerate(broll_segments):
+        if not isinstance(bseg, dict):
+            bseg = {}
+
+        from_existing = existing_input_props.get(idx)
+        # Trimmer-managed B-Roll JSON is the source of truth. Existing inputProps
+        # is only a fallback for missing/legacy values.
+        split_ratio = normalize_split_ratio(
+            bseg.get("splitRatio", (from_existing or {}).get("splitRatio", 0.5)),
+            0.5,
+        )
+
+        transforms_src = bseg.get("visual_transforms")
+        if transforms_src is None:
+            transforms_src = (from_existing or {}).get("visualTransforms")
+        transforms = normalize_visual_transforms(transforms_src)
+
+        props_segments.append(
+            {
+                "index": idx,
+                "splitRatio": split_ratio,
+                "visualTransforms": transforms,
+            }
+        )
+
+    return {"segments": props_segments}
 
 
 def validate_session(session: dict) -> tuple[bool, str]:
@@ -523,6 +771,15 @@ def _as_float(value, field_name: str) -> float:
         raise ValueError(f"invalid numeric field '{field_name}'") from exc
 
 
+def _safe_optional_float(value) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _segment_label(index: int, segment: dict) -> str:
     return f"Segment {index + 1} ({segment.get('name', 'Unnamed')})"
 
@@ -621,7 +878,12 @@ import React from "react";
 import {{ staticFile }} from "remotion";
 import {{ HalfAndHalf }} from "./layouts/HalfAndHalf";
 
-export const Segment{index}: React.FC<{{ splitRatio: number }}> = ({{ splitRatio }}) => (
+type SegmentTransforms = {{
+    aroll: {{ zoom: number; posX: number; posY: number }};
+    broll: {{ zoom: number; posX: number; posY: number }};
+}};
+
+export const Segment{index}: React.FC<{{ splitRatio: number; visualTransforms: SegmentTransforms }}> = ({{ splitRatio, visualTransforms }}) => (
   <HalfAndHalf
         arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
         brollSrc={{staticFile({json.dumps(joined["broll_src"])})}}
@@ -629,6 +891,8 @@ export const Segment{index}: React.FC<{{ splitRatio: number }}> = ({{ splitRatio
     brollTrimStart={{{joined["broll_trim_start"]}}}
     durationSec={{{joined["duration_sec"]}}}
     splitRatio={{splitRatio}}
+        arollTransform={{visualTransforms.aroll}}
+        brollTransform={{visualTransforms.broll}}
     fps={{{FPS}}}
   />
 );
@@ -665,8 +929,13 @@ def _generate_composition_component(joined_segments: list[dict]) -> str:
             "",
             f"export const TOTAL_DURATION_FRAMES = {sum(max(1, round(seg['duration_sec'] * FPS)) for seg in joined_segments)};",
             "",
+            "type SegmentTransforms = {",
+            "  aroll: { zoom: number; posX: number; posY: number };",
+            "  broll: { zoom: number; posX: number; posY: number };",
+            "};",
+            "",
             "type Props = {",
-            "  segments: Array<{ splitRatio: number }>;",
+            "  segments: Array<{ splitRatio: number; visualTransforms: SegmentTransforms }>;",
             "};",
             "",
             "export const MyComposition: React.FC<Props> = ({ segments }) => (",
@@ -686,7 +955,9 @@ def _generate_composition_component(joined_segments: list[dict]) -> str:
         else:
             lines.append(f"    <Sequence from={{{from_frame}}} durationInFrames={{{duration_frames}}}>")
         if seg["layout"] == "half_and_half":
-            lines.append(f"      <Segment{idx} splitRatio={{segments[{idx}].splitRatio}} />")
+            lines.append(
+                f"      <Segment{idx} splitRatio={{segments[{idx}].splitRatio}} visualTransforms={{segments[{idx}].visualTransforms}} />"
+            )
         else:
             lines.append(f"      <Segment{idx} />")
         lines.append("    </Sequence>")
@@ -696,16 +967,9 @@ def _generate_composition_component(joined_segments: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _write_input_props(output_dir: Path, segment_count: int) -> None:
-    props = {
-        "segments": [
-            {
-                "index": idx,
-                "splitRatio": 0.5,
-            }
-            for idx in range(segment_count)
-        ]
-    }
+def _write_input_props(output_dir: Path, broll_segments: list[dict]) -> None:
+    existing = _load_existing_input_props(output_dir)
+    props = build_remotion_input_props_from_broll(broll_segments, existing)
     (output_dir / "inputProps.json").write_text(
         json.dumps(props, ensure_ascii=False, indent=2),
         "utf-8",
@@ -726,7 +990,8 @@ def _write_generated_remotion_files(output_dir: Path, joined_segments: list[dict
         _generate_composition_component(joined_segments),
         "utf-8",
     )
-    _write_input_props(output_dir, len(joined_segments))
+    broll_segments = [seg.get("source_broll", {}) for seg in joined_segments]
+    _write_input_props(output_dir, broll_segments)
 
 
 def generate_remotion_components(project_name: str) -> int:
@@ -753,6 +1018,9 @@ def generate_remotion_components(project_name: str) -> int:
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON: {exc}") from exc
 
+    aroll_json = normalize_aroll_json(aroll_json)
+    broll_json = normalize_broll_json(broll_json)
+
     aroll_src_path = project_root / project_name / "video" / str(aroll_json.get("video", ""))
     broll_src_path = project_root / project_name / "video" / str(broll_json.get("video", ""))
 
@@ -776,17 +1044,50 @@ def generate_remotion_components(project_name: str) -> int:
             raise ValueError(f"{label}: invalid aroll_segment_index={aroll_idx}")
 
         aroll_seg = aroll_segments[aroll_idx]
-        broll_start = _as_float(bseg.get("start"), "start")
-        broll_end = _as_float(bseg.get("end"), "end")
-        duration_sec = round(broll_end - broll_start, 3)
-        if duration_sec <= 0:
-            raise ValueError(f"{label}: duration must be > 0")
-
         max_duration = _as_float(bseg.get("max_duration"), "max_duration")
-        if abs(max_duration - duration_sec) > 0.01:
-            raise ValueError(
-                f"{label}: max_duration ({max_duration}) does not match end-start ({duration_sec})"
+        if max_duration <= 0:
+            raise ValueError(f"{label}: max_duration must be > 0")
+
+        raw_start = _safe_optional_float(bseg.get("start"))
+        raw_end = _safe_optional_float(bseg.get("end"))
+
+        # Legacy/incomplete segment data can omit start/end; derive stable timings
+        # from max_duration so generation still succeeds.
+        if raw_start is None and raw_end is None:
+            broll_start = 0.0
+            duration_sec = round(max_duration, 3)
+            broll_end = broll_start + duration_sec
+            print(
+                f"Warning: {label}: missing start/end, defaulting broll trim to 0s for {duration_sec:.3f}s"
             )
+        elif raw_start is not None and raw_end is None:
+            broll_start = max(0.0, raw_start)
+            duration_sec = round(max_duration, 3)
+            broll_end = broll_start + duration_sec
+            print(
+                f"Warning: {label}: missing end, deriving from start + max_duration ({duration_sec:.3f}s)"
+            )
+        elif raw_start is None and raw_end is not None:
+            duration_sec = round(max_duration, 3)
+            broll_end = max(0.0, raw_end)
+            broll_start = max(0.0, broll_end - duration_sec)
+            print(
+                f"Warning: {label}: missing start, deriving from end - max_duration ({duration_sec:.3f}s)"
+            )
+        else:
+            broll_start = max(0.0, float(raw_start))
+            broll_end = max(broll_start, float(raw_end))
+            duration_sec = round(broll_end - broll_start, 3)
+            if duration_sec <= 0:
+                duration_sec = round(max_duration, 3)
+                broll_end = broll_start + duration_sec
+                print(
+                    f"Warning: {label}: non-positive end-start, using max_duration ({duration_sec:.3f}s)"
+                )
+            elif abs(max_duration - duration_sec) > 0.01:
+                print(
+                    f"Warning: {label}: max_duration ({max_duration}) != end-start ({duration_sec}); using end-start"
+                )
 
         partitions = aroll_seg.get("partitions", [])
         if not isinstance(partitions, list):
@@ -847,6 +1148,7 @@ def generate_remotion_components(project_name: str) -> int:
                 "aroll_trim_start": 0,
                 "broll_trim_start": 0,
                 "duration_sec": duration_sec,
+                "source_broll": bseg,
             }
         )
 
@@ -970,6 +1272,28 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
 
             cache_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
             self._json(data)
+        elif path == "/api/remotion/input-props":
+            project_name = str(query.get("project", [self._session()["project"]])[0]).strip()
+            if not project_name:
+                self._json({"ok": False, "error": "Missing project"}, status=400)
+                return
+            try:
+                broll_data, _ = load_broll_data_for_project(project_name)
+            except (OSError, json.JSONDecodeError):
+                self._json({"ok": False, "error": "Failed to load B-Roll segments"}, status=500)
+                return
+
+            output_dir = WORKSPACE / "remotion-src" / "src"
+            existing = _load_existing_input_props(output_dir)
+            props = build_remotion_input_props_from_broll(broll_data.get("segments", []), existing)
+            self._json({"ok": True, "project": project_name, "inputProps": props})
+        elif path == "/api/presets":
+            format_name = str(query.get("format", [""])[0]).strip()
+            if not format_name:
+                self._json({"ok": False, "error": "Missing format"}, status=400)
+                return
+            presets = read_backup_presets().get(format_name, [])
+            self._json({"ok": True, "format": format_name, "presets": presets})
         elif path.startswith("/video/"):
             self._serve_video(path[7:])
         else:
@@ -983,6 +1307,10 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             data = json.loads(body)
             session = self._session()
             p = segments_path(WORKSPACE / session["project"], session["videoFilename"])
+            if session["mode"] == "aroll":
+                data = normalize_aroll_json(data)
+            else:
+                data = normalize_broll_json(data)
             p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
             self._json({"ok": True})
         elif req_path == "/api/partitions/update":
@@ -1014,6 +1342,14 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             type(self).on_client_close()
             self._json({"ok": True})
+        elif req_path == "/api/segments/visual-transform":
+            self._handle_visual_transform_update()
+        elif req_path == "/api/segments/visual-transform/bulk":
+            self._handle_visual_transform_bulk_update()
+        elif req_path == "/api/remotion/input-props/save":
+            self._handle_save_remotion_input_props()
+        elif req_path == "/api/presets":
+            self._handle_create_preset()
         elif req_path == "/api/generate-remotion":
             try:
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
@@ -1035,6 +1371,13 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             self._json({"ok": True, "segment_count": segment_count})
         else:
             self.send_error(404)
+
+    def do_DELETE(self):
+        req_path = urlparse(self.path).path
+        if req_path == "/api/presets":
+            self._handle_delete_preset()
+            return
+        self.send_error(404)
 
     # ── Response helpers ─────────────────────────────────────────────────
     def _json(self, obj, status: int = 200):
@@ -1145,6 +1488,236 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             "ok": True,
             "updated_broll_segments": updated_broll_segments,
         })
+
+    def _handle_visual_transform_update(self):
+        session = self._session()
+        if session["mode"] != "broll":
+            self._json({"ok": False, "error": "Visual transform updates are only available in broll mode"}, status=400)
+            return
+
+        req_data = _parse_json_body(self)
+        if req_data is None:
+            self._json({"ok": False, "error": "Invalid JSON body"}, status=400)
+            return
+
+        seg_idx = req_data.get("segmentIndex")
+        if not isinstance(seg_idx, int):
+            self._json({"ok": False, "error": "segmentIndex must be an integer"}, status=400)
+            return
+
+        try:
+            broll_data, p = load_broll_data_for_project(session["project"], session["videoFilename"])
+        except (OSError, json.JSONDecodeError):
+            self._json({"ok": False, "error": "Failed to load B-Roll segments"}, status=500)
+            return
+
+        segs = broll_data.get("segments", [])
+        if not isinstance(segs, list) or seg_idx < 0 or seg_idx >= len(segs):
+            self._json({"ok": False, "error": "segmentIndex out of bounds"}, status=400)
+            return
+
+        transforms = normalize_visual_transforms(req_data.get("visualTransforms"))
+        segs[seg_idx]["visual_transforms"] = transforms
+
+        try:
+            p.write_text(json.dumps(broll_data, ensure_ascii=False, indent=2), "utf-8")
+        except OSError as exc:
+            self._json({"ok": False, "error": f"Failed to save B-Roll segments: {exc}"}, status=500)
+            return
+
+        self._json(
+            {
+                "ok": True,
+                "segmentIndex": seg_idx,
+                "segment": segs[seg_idx],
+                "savedAt": _utc_now_iso(),
+            }
+        )
+
+    def _handle_visual_transform_bulk_update(self):
+        session = self._session()
+        if session["mode"] != "broll":
+            self._json({"ok": False, "error": "Bulk visual transform updates are only available in broll mode"}, status=400)
+            return
+
+        req_data = _parse_json_body(self)
+        if req_data is None:
+            self._json({"ok": False, "error": "Invalid JSON body"}, status=400)
+            return
+
+        updates = req_data.get("updates")
+        if not isinstance(updates, list):
+            self._json({"ok": False, "error": "updates must be a list"}, status=400)
+            return
+
+        try:
+            broll_data, p = load_broll_data_for_project(session["project"], session["videoFilename"])
+        except (OSError, json.JSONDecodeError):
+            self._json({"ok": False, "error": "Failed to load B-Roll segments"}, status=500)
+            return
+
+        segs = broll_data.get("segments", [])
+        if not isinstance(segs, list):
+            self._json({"ok": False, "error": "Invalid B-Roll segment structure"}, status=500)
+            return
+
+        results: list[dict] = []
+        updated_any = False
+        for item in updates:
+            if not isinstance(item, dict):
+                results.append({"ok": False, "error": "invalid update payload"})
+                continue
+            seg_idx = item.get("segmentIndex")
+            if not isinstance(seg_idx, int):
+                results.append({"segmentIndex": seg_idx, "ok": False, "error": "segmentIndex must be an integer"})
+                continue
+            if seg_idx < 0 or seg_idx >= len(segs):
+                results.append({"segmentIndex": seg_idx, "ok": False, "error": "segmentIndex out of bounds"})
+                continue
+
+            transforms = normalize_visual_transforms(item.get("visualTransforms"))
+            segs[seg_idx]["visual_transforms"] = transforms
+            results.append({"segmentIndex": seg_idx, "ok": True, "segment": segs[seg_idx]})
+            updated_any = True
+
+        if updated_any:
+            try:
+                p.write_text(json.dumps(broll_data, ensure_ascii=False, indent=2), "utf-8")
+            except OSError as exc:
+                self._json({"ok": False, "error": f"Failed to save B-Roll segments: {exc}"}, status=500)
+                return
+
+        self._json(
+            {
+                "ok": True,
+                "results": results,
+                "savedAt": _utc_now_iso() if updated_any else None,
+            }
+        )
+
+    def _handle_save_remotion_input_props(self):
+        req_data = _parse_json_body(self)
+        if req_data is None:
+            self._json({"ok": False, "error": "Invalid JSON body"}, status=400)
+            return
+
+        project_name = str(req_data.get("project", self._session()["project"])).strip()
+        if not project_name:
+            self._json({"ok": False, "error": "Missing project"}, status=400)
+            return
+
+        payload = req_data.get("inputProps", req_data)
+        segments = payload.get("segments") if isinstance(payload, dict) else None
+        if not isinstance(segments, list):
+            self._json({"ok": False, "error": "inputProps.segments must be a list"}, status=400)
+            return
+
+        try:
+            broll_data, p = load_broll_data_for_project(project_name)
+        except (OSError, json.JSONDecodeError):
+            self._json({"ok": False, "error": "Failed to load B-Roll segments"}, status=500)
+            return
+
+        broll_segments = broll_data.get("segments", [])
+        if not isinstance(broll_segments, list):
+            self._json({"ok": False, "error": "Invalid B-Roll segment structure"}, status=500)
+            return
+
+        updated = 0
+        failures: list[dict] = []
+        for idx, seg in enumerate(segments):
+            if not isinstance(seg, dict):
+                failures.append({"segmentIndex": idx, "error": "Segment entry must be an object"})
+                continue
+            seg_idx = seg.get("index")
+            if not isinstance(seg_idx, int):
+                seg_idx = idx
+            if seg_idx < 0 or seg_idx >= len(broll_segments):
+                failures.append({"segmentIndex": seg_idx, "error": "segment index out of bounds"})
+                continue
+
+            broll_segments[seg_idx]["splitRatio"] = normalize_split_ratio(seg.get("splitRatio"), 0.5)
+            transforms = seg.get("visualTransforms", seg.get("visual_transforms"))
+            broll_segments[seg_idx]["visual_transforms"] = normalize_visual_transforms(transforms)
+            updated += 1
+
+        try:
+            p.write_text(json.dumps(broll_data, ensure_ascii=False, indent=2), "utf-8")
+        except OSError as exc:
+            self._json({"ok": False, "error": f"Failed to save B-Roll segments: {exc}"}, status=500)
+            return
+
+        self._json(
+            {
+                "ok": True,
+                "project": project_name,
+                "updated": updated,
+                "failures": failures,
+                "savedAt": _utc_now_iso(),
+            }
+        )
+
+    def _handle_create_preset(self):
+        req_data = _parse_json_body(self)
+        if req_data is None:
+            self._json({"ok": False, "error": "Invalid JSON body"}, status=400)
+            return
+
+        format_name = str(req_data.get("format", "")).strip()
+        name = str(req_data.get("name", "")).strip()
+        if not format_name:
+            self._json({"ok": False, "error": "Missing format"}, status=400)
+            return
+        if not name:
+            self._json({"ok": False, "error": "Missing preset name"}, status=400)
+            return
+
+        presets = read_backup_presets()
+        format_presets = presets.get(format_name, [])
+        if any(str(p.get("name", "")).strip() == name for p in format_presets):
+            self._json({"ok": False, "error": "Preset name already exists"}, status=409)
+            return
+
+        preset = {
+            "name": name,
+            "aroll": _normalize_layer_transform(req_data.get("aroll")),
+            "broll": _normalize_layer_transform(req_data.get("broll")),
+            "createdAt": _utc_now_iso(),
+        }
+        format_presets.append(preset)
+        presets[format_name] = format_presets
+        write_backup_presets(presets)
+
+        self._json({"ok": True, "format": format_name, "preset": preset, "presets": format_presets})
+
+    def _handle_delete_preset(self):
+        req_data = _parse_json_body(self)
+        if req_data is None:
+            self._json({"ok": False, "error": "Invalid JSON body"}, status=400)
+            return
+
+        format_name = str(req_data.get("format", "")).strip()
+        name = str(req_data.get("name", "")).strip()
+        if not format_name:
+            self._json({"ok": False, "error": "Missing format"}, status=400)
+            return
+        if not name:
+            self._json({"ok": False, "error": "Missing preset name"}, status=400)
+            return
+
+        presets = read_backup_presets()
+        format_presets = presets.get(format_name, [])
+        if not isinstance(format_presets, list):
+            format_presets = []
+
+        kept = [p for p in format_presets if str(p.get("name", "")).strip() != name]
+        if len(kept) == len(format_presets):
+            self._json({"ok": False, "error": "Preset not found"}, status=404)
+            return
+
+        presets[format_name] = kept
+        write_backup_presets(presets)
+        self._json({"ok": True, "format": format_name, "name": name, "presets": kept})
 
     def _serve_file(self, filepath: Path, content_type: str):
         try:

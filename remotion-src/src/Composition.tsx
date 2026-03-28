@@ -6,17 +6,22 @@ import { Segment1 } from "./Segment1";
 
 export const TOTAL_DURATION_FRAMES = 144;
 
+type SegmentTransforms = {
+  aroll: { zoom: number; posX: number; posY: number };
+  broll: { zoom: number; posX: number; posY: number };
+};
+
 type Props = {
-  segments: Array<{ splitRatio: number }>;
+  segments: Array<{ splitRatio: number; visualTransforms: SegmentTransforms }>;
 };
 
 export const MyComposition: React.FC<Props> = ({ segments }) => (
   <>
     <Sequence durationInFrames={59}>
-      <Segment0 splitRatio={segments[0].splitRatio} />
+      <Segment0 splitRatio={segments[0].splitRatio} visualTransforms={segments[0].visualTransforms} />
     </Sequence>
     <Sequence from={59} durationInFrames={85}>
-      <Segment1 splitRatio={segments[1].splitRatio} />
+      <Segment1 splitRatio={segments[1].splitRatio} visualTransforms={segments[1].visualTransforms} />
     </Sequence>
   </>
 );

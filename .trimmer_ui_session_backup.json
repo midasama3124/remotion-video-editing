@@ -2,5 +2,23 @@
   "project": "sports_production",
   "mode": "broll",
   "videoFilename": "broll_main.mp4",
-  "fps": 30
+  "fps": 30,
+  "presets": {
+    "Half-And-Half Split": [
+      {
+        "name": "Test",
+        "aroll": {
+          "zoom": 1.42,
+          "posX": 35.0,
+          "posY": -120.0
+        },
+        "broll": {
+          "zoom": 1.08,
+          "posX": -24.0,
+          "posY": 60.0
+        },
+        "createdAt": "2026-03-28T19:43:30Z"
+      }
+    ]
+  }
 }
