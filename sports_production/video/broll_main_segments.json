@@ -5,8 +5,8 @@
   "segments": [
     {
       "name": "Legacy 1",
-      "start": null,
-      "end": null,
+      "start": 41.211,
+      "end": 43.178,
       "aroll_segment_index": 0,
       "aroll_segment_name": "Segment 1",
       "max_duration": 1.967,
@@ -14,22 +14,22 @@
       "splitRatio": 0.5,
       "visual_transforms": {
         "aroll": {
-          "zoom": 1.42,
-          "posX": 35.0,
-          "posY": -120.0
+          "zoom": 0.99,
+          "posX": -23.0,
+          "posY": 402.0
         },
         "broll": {
-          "zoom": 1.08,
-          "posX": -24.0,
-          "posY": 60.0
+          "zoom": 1.27,
+          "posX": -43.0,
+          "posY": 181.0
         }
       },
       "aroll_partition_index": 0
     },
     {
       "name": "Legacy 2",
-      "start": null,
-      "end": null,
+      "start": 13.262,
+      "end": 16.097,
       "aroll_segment_index": 1,
       "aroll_segment_name": "Segment 2",
       "max_duration": 2.835,

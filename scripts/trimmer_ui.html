@@ -911,6 +911,98 @@
 
         #empty-state { text-align: center; padding: 30px; color: var(--text-dim); }
         #empty-state p { margin-bottom: 6px; font-size: 13px; }
+
+        /* ── Transform Preview Modal ─────────────────────────── */
+        #transform-preview-modal {
+            position: fixed;
+            z-index: 100;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            width: 392px;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            cursor: move;
+            user-select: none;
+        }
+        #transform-preview-modal.open { display: flex; }
+        #transform-preview-modal.dragging {
+            cursor: grabbing;
+        }
+        #transform-preview-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
+        }
+        #transform-preview-modal-header h3 {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0;
+        }
+        #transform-preview-close {
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #transform-preview-close:hover { color: var(--accent); }
+        #transform-preview-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.1);
+            flex-shrink: 0;
+        }
+        #transform-safe-zone-toggle {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        #transform-safe-zone-toggle:hover { border-color: var(--accent); }
+        #transform-safe-zone-toggle.active {
+            background: rgba(233, 69, 96, 0.25);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        #transform-preview-stage {
+            padding: 10px 12px 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.12);
+            flex-shrink: 0;
+        }
+        #transform-preview-canvas {
+            background: #000;
+            display: block;
+            width: 360px;
+            height: 640px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            image-rendering: pixelated;
+        }
     </style>
 </head>
 <body>
@@ -1083,6 +1175,20 @@
         </div>
     </div>
 
+    <!-- Transform Preview Modal -->
+    <div id="transform-preview-modal">
+        <div id="transform-preview-modal-header">
+            <h3>Transform Preview</h3>
+            <button id="transform-preview-close" title="Close preview window">×</button>
+        </div>
+        <div id="transform-preview-controls">
+            <button id="transform-safe-zone-toggle" title="Toggle Instagram safe zone overlay">Safe Zone: Off</button>
+        </div>
+        <div id="transform-preview-stage">
+            <canvas id="transform-preview-canvas"></canvas>
+        </div>
+    </div>
+
 <script>
 /* ================================================================
    STATE
@@ -1109,6 +1215,18 @@ let presetsPopoverOpen = false;
 let presetsLoadToken = 0;
 let presetsCache = [];
 let pendingPresetConflictPayload = null;
+
+// Transform Preview Modal state
+let previewModalOpen = false;
+let previewCurrentSegment = null;
+let previewSafeZoneVisible = false;
+let safeZoneImage = null;
+let previewModalDragging = false;
+let previewModalDragOffsetX = 0;
+let previewModalDragOffsetY = 0;
+let previewBrollVideoEl = null;
+let previewArollVideoEl = null;
+
 const selectedSegmentIndices = new Set();
 const STRICT_UNIQUE_AROLL_BINDING = true;
 const transformPanelOpen = new WeakMap();
@@ -1913,6 +2031,7 @@ async function reloadForSession() {
     timelineCenterTime = 0;
     updateZoomLabel();
     setVideoSource();
+    setPreviewVideoSources();
     await loadSegments();
     if (config.mode === 'broll') {
         await loadArollSegments();
@@ -2710,6 +2829,251 @@ function scheduleVisualTransformSave(seg) {
     transformSaveTimer.set(seg, timerId);
 }
 
+/* ── Transform Preview Modal ───────────────────────────────── */
+function ensurePreviewVideosReady() {
+    if (!previewBrollVideoEl) {
+        previewBrollVideoEl = document.createElement('video');
+        previewBrollVideoEl.muted = true;
+        previewBrollVideoEl.preload = 'auto';
+        previewBrollVideoEl.playsInline = true;
+    }
+    if (!previewArollVideoEl) {
+        previewArollVideoEl = document.createElement('video');
+        previewArollVideoEl.muted = true;
+        previewArollVideoEl.preload = 'auto';
+        previewArollVideoEl.playsInline = true;
+    }
+}
+
+function setPreviewVideoSources() {
+    ensurePreviewVideosReady();
+    const brollSrc = `/video/${encodeURIComponent(config.videoFilename || 'broll_main.mp4')}`;
+    const arollSrc = '/video/aroll.mp4';
+    if (previewBrollVideoEl.src !== brollSrc) previewBrollVideoEl.src = brollSrc;
+    if (previewArollVideoEl.src !== arollSrc) previewArollVideoEl.src = arollSrc;
+}
+
+function seekVideoToTime(videoEl, timeSec) {
+    if (!videoEl || !Number.isFinite(timeSec)) return;
+    const nextTime = Math.max(0, Number(timeSec));
+    const applySeek = () => {
+        try {
+            if (!Number.isFinite(videoEl.currentTime) || Math.abs(videoEl.currentTime - nextTime) > 0.02) {
+                videoEl.currentTime = nextTime;
+            }
+        } catch (_err) {
+            // Ignore seek races while metadata is loading.
+        }
+    };
+    if (videoEl.readyState >= 1) {
+        applySeek();
+    } else {
+        videoEl.addEventListener('loadedmetadata', applySeek, { once: true });
+    }
+}
+
+function syncPreviewVideoTimes(seg) {
+    if (!seg) return;
+    ensurePreviewVideosReady();
+    const brollStart = Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0;
+    const targetRef = getBrollTargetFromSeg(seg);
+    const target = targetRef ? findArollTargetByKey(targetRef.key) : null;
+    const arollStart = target && Number.isFinite(Number(target.start)) ? Number(target.start) : 0;
+    seekVideoToTime(previewBrollVideoEl, brollStart);
+    seekVideoToTime(previewArollVideoEl, arollStart);
+}
+
+function drawVideoCoverWithTransform(ctx, videoEl, clipX, clipY, clipW, clipH, layerTransform, pixelScale) {
+    if (!videoEl || videoEl.readyState < 2 || !videoEl.videoWidth || !videoEl.videoHeight) return;
+
+    const zoom = Number(layerTransform?.zoom) || 1;
+    const posX = Number(layerTransform?.posX) || 0;
+    const posY = Number(layerTransform?.posY) || 0;
+
+    const coverScale = Math.max(clipW / videoEl.videoWidth, clipH / videoEl.videoHeight);
+    const drawW = videoEl.videoWidth * coverScale;
+    const drawH = videoEl.videoHeight * coverScale;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clipX, clipY, clipW, clipH);
+    ctx.clip();
+
+    ctx.translate(
+        clipX + (clipW / 2) + (posX * pixelScale),
+        clipY + (clipH / 2) + (posY * pixelScale)
+    );
+    ctx.scale(zoom, zoom);
+    ctx.drawImage(videoEl, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+}
+
+function closePreviewModal() {
+    const modal = document.getElementById('transform-preview-modal');
+    modal.classList.remove('open');
+    previewModalOpen = false;
+    previewCurrentSegment = null;
+    stopPreviewRenderLoop();
+}
+
+function renderPreviewFrame() {
+    if (!previewModalOpen || !previewCurrentSegment) return;
+    
+    const canvas = document.getElementById('transform-preview-canvas');
+    const ctx = canvas.getContext('2d');
+    const seg = previewCurrentSegment;
+    
+    // Render at native 9:16 coordinates to match Remotion composition math.
+    const targetWidth = 1080;
+    const targetHeight = 1920;
+    const scale = 360 / targetWidth;
+
+    if (canvas.width !== targetWidth) canvas.width = targetWidth;
+    if (canvas.height !== targetHeight) canvas.height = targetHeight;
+    
+    // Draw black background
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    try {
+        // Get transforms
+        const transforms = ensureSegmentVisualTransforms(seg);
+        const format = normalizeBrollFormat(seg.broll_format);
+        
+        if (format === 'Half-And-Half Split') {
+            // Keep preview fixed at an exact 50/50 split for Half-And-Half.
+            const topHeight = Math.floor(targetHeight * 0.5);
+            const bottomHeight = canvas.height - topHeight;
+
+            drawVideoCoverWithTransform(
+                ctx,
+                previewBrollVideoEl,
+                0,
+                0,
+                canvas.width,
+                topHeight,
+                transforms.broll,
+                scale
+            );
+
+            drawVideoCoverWithTransform(
+                ctx,
+                previewArollVideoEl,
+                0,
+                topHeight,
+                canvas.width,
+                bottomHeight,
+                transforms.aroll,
+                scale
+            );
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, topHeight);
+            ctx.lineTo(canvas.width, topHeight);
+            ctx.stroke();
+        } else {
+            // For non-Half-And-Half formats, show the B-roll source full-frame.
+            drawVideoCoverWithTransform(
+                ctx,
+                previewBrollVideoEl,
+                0,
+                0,
+                canvas.width,
+                canvas.height,
+                transforms.broll,
+                scale
+            );
+        }
+    } catch (e) {
+        console.warn('Error drawing preview frame:', e);
+    }
+    
+    // Draw safe zone overlay if enabled
+    if (previewSafeZoneVisible && safeZoneImage && safeZoneImage.complete && safeZoneImage.naturalWidth > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        try {
+            ctx.drawImage(safeZoneImage, 0, 0, canvas.width, canvas.height);
+        } catch (e) {
+            console.warn('Error drawing safe zone overlay:', e);
+        }
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+    }
+}
+
+async function loadSafeZoneImage() {
+    try {
+        const src = '/assets/instagram_safe_zone.png';
+        await new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                safeZoneImage = img;
+                if (previewModalOpen) {
+                    renderPreviewFrame();
+                }
+                resolve();
+            };
+            img.onerror = () => {
+                safeZoneImage = null;
+                reject(new Error(`Failed to load safe zone image from ${src}`));
+            };
+            img.src = src;
+        });
+    } catch (err) {
+        console.warn('Error loading safe zone image:', err);
+    }
+}
+
+function openPreviewModal(seg) {
+    setPreviewVideoSources();
+    syncPreviewVideoTimes(seg);
+    previewCurrentSegment = seg;
+    previewModalOpen = true;
+    
+    const modal = document.getElementById('transform-preview-modal');
+    modal.classList.add('open');
+    
+    // Position modal in center
+    modal.style.left = '50%';
+    modal.style.top = '50%';
+    modal.style.transform = 'translate(-50%, -50%)';
+    
+    // Initial render
+    setTimeout(() => {
+        renderPreviewFrame();
+        // Start continuous render loop
+        startPreviewRenderLoop();
+    }, 50);
+}
+
+// Animation frame ID for preview render loop
+let previewRenderLoopId = null;
+
+function startPreviewRenderLoop() {
+    if (previewRenderLoopId) return; // Already running
+    
+    function loop() {
+        if (previewModalOpen && previewCurrentSegment) {
+            renderPreviewFrame();
+            previewRenderLoopId = requestAnimationFrame(loop);
+        } else {
+            previewRenderLoopId = null;
+        }
+    }
+    
+    previewRenderLoopId = requestAnimationFrame(loop);
+}
+
+function stopPreviewRenderLoop() {
+    if (previewRenderLoopId) {
+        cancelAnimationFrame(previewRenderLoopId);
+        previewRenderLoopId = null;
+    }
+}
+
 function getSelectedSegmentIndices() {
     return Array.from(selectedSegmentIndices)
         .map((idx) => Number(idx))
@@ -3494,6 +3858,10 @@ function renderSegList() {
                 if (!supportsTransforms) return;
                 const nextOpen = !Boolean(transformPanelOpen.get(seg));
                 transformPanelOpen.set(seg, nextOpen);
+                
+                // Open preview modal when Transform is clicked
+                openPreviewModal(seg);
+                
                 renderSegList();
             });
             transformBtn.disabled = !supportsTransforms;
@@ -4102,7 +4470,60 @@ document.addEventListener('keydown', (e) => {
         if (modal.classList.contains('open')) {
             closePartitionModal();
         }
+        const previewModal = document.getElementById('transform-preview-modal');
+        if (previewModal.classList.contains('open')) {
+            closePreviewModal();
+        }
     }
+});
+
+/* ── Transform Preview Modal event listeners ─────────────────── */
+document.getElementById('transform-preview-close').addEventListener('click', closePreviewModal);
+
+document.getElementById('transform-safe-zone-toggle').addEventListener('click', () => {
+    previewSafeZoneVisible = !previewSafeZoneVisible;
+    const btn = document.getElementById('transform-safe-zone-toggle');
+    if (previewSafeZoneVisible) {
+        btn.classList.add('active');
+        btn.textContent = 'Safe Zone: On';
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = 'Safe Zone: Off';
+    }
+    renderPreviewFrame();
+});
+
+// Modal dragging functionality
+let previewHeaderEl = document.getElementById('transform-preview-modal-header');
+previewHeaderEl.addEventListener('mousedown', (e) => {
+    if (e.target.closest('#transform-preview-close')) return;
+    
+    previewModalDragging = true;
+    const modal = document.getElementById('transform-preview-modal');
+    const rect = modal.getBoundingClientRect();
+    previewModalDragOffsetX = e.clientX - rect.left;
+    previewModalDragOffsetY = e.clientY - rect.top;
+    
+    modal.classList.add('dragging');
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!previewModalDragging) return;
+    
+    const modal = document.getElementById('transform-preview-modal');
+    const newX = e.clientX - previewModalDragOffsetX;
+    const newY = e.clientY - previewModalDragOffsetY;
+    
+    modal.style.left = newX + 'px';
+    modal.style.top = newY + 'px';
+    modal.style.transform = 'none';
+});
+
+document.addEventListener('mouseup', () => {
+    if (!previewModalDragging) return;
+    previewModalDragging = false;
+    const modal = document.getElementById('transform-preview-modal');
+    modal.classList.remove('dragging');
 });
 
 projectSelect.addEventListener('change', async () => {
@@ -4156,6 +4577,9 @@ async function init() {
     await refreshSelectors(config);
     await reloadForSession();
     startServerLifecycle();
+
+    // Load safe zone image for transform preview
+    loadSafeZoneImage();
 
     resizeWaveCanvas();
     video.addEventListener('loadedmetadata', () => {

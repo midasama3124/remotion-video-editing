@@ -1294,6 +1294,8 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
                 return
             presets = read_backup_presets().get(format_name, [])
             self._json({"ok": True, "format": format_name, "presets": presets})
+        elif path.startswith("/assets/"):
+            self._serve_asset(path[8:])
         elif path.startswith("/video/"):
             self._serve_video(path[7:])
         else:
@@ -1780,6 +1782,28 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
         except (BrokenPipeError, ConnectionResetError):
             return
+
+    def _serve_asset(self, rel_path: str):
+        rel_path = (rel_path or "").strip("/")
+        if not rel_path:
+            self.send_error(404, "Asset path is required")
+            return
+
+        base_dir = WORKSPACE / "assets"
+        asset_path = (base_dir / rel_path).resolve()
+
+        try:
+            asset_path.relative_to(base_dir.resolve())
+        except ValueError:
+            self.send_error(403, "Forbidden")
+            return
+
+        if not asset_path.is_file():
+            self.send_error(404, f"Not found: {rel_path}")
+            return
+
+        ctype = mimetypes.guess_type(str(asset_path))[0] or "application/octet-stream"
+        self._serve_file(asset_path, ctype)
 
 
 # ─── Main ───────────────────────────────────────────────────────────────────
