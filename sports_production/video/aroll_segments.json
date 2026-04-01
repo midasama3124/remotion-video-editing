@@ -7,15 +7,55 @@
       "name": "Segment 1",
       "start": 13.056,
       "end": 15.023,
-      "partitions": [],
-      "aroll_segment_index": 0
+      "visual_transforms": {
+        "aroll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        },
+        "broll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        }
+      },
+      "partitions": []
     },
     {
       "name": "Segment 2",
       "start": 38.165,
       "end": 41,
-      "partitions": [],
-      "aroll_segment_index": 1
+      "visual_transforms": {
+        "aroll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        },
+        "broll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        }
+      },
+      "partitions": []
+    },
+    {
+      "name": "Segment 3",
+      "start": 73.578,
+      "end": 78.43,
+      "visual_transforms": {
+        "aroll": {
+          "zoom": 1.2,
+          "posX": 0.0,
+          "posY": 100.0
+        },
+        "broll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        }
+      },
+      "partitions": []
     }
   ]
 }

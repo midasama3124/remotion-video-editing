@@ -95,6 +95,7 @@ def normalize_aroll_json(data: dict) -> dict:
             "name": seg.get("name", "Unnamed"),
             "start": seg.get("start"),
             "end": seg.get("end"),
+            "visual_transforms": normalize_visual_transforms(seg.get("visual_transforms")),
         }
         # Ensure partitions field; if missing or invalid, initialize to empty
         if "partitions" in seg and isinstance(seg["partitions"], list):
@@ -898,16 +899,22 @@ export const Segment{index}: React.FC<{{ splitRatio: number; visualTransforms: S
 );
 '''
 
-        return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
+    return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
 import React from "react";
 import {{ staticFile }} from "remotion";
 import {{ ARollOnly }} from "./layouts/ARollOnly";
 
-export const Segment{index}: React.FC = () => (
+type SegmentTransforms = {{
+    aroll: {{ zoom: number; posX: number; posY: number }};
+    broll: {{ zoom: number; posX: number; posY: number }};
+}};
+
+export const Segment{index}: React.FC<{{ visualTransforms: SegmentTransforms }}> = ({{ visualTransforms }}) => (
     <ARollOnly
         arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
         arollTrimStart={{{joined["aroll_trim_start"]}}}
         durationSec={{{joined["duration_sec"]}}}
+        arollTransform={{visualTransforms.aroll}}
         fps={{{FPS}}}
     />
 );
@@ -959,7 +966,9 @@ def _generate_composition_component(joined_segments: list[dict]) -> str:
                 f"      <Segment{idx} splitRatio={{segments[{idx}].splitRatio}} visualTransforms={{segments[{idx}].visualTransforms}} />"
             )
         else:
-            lines.append(f"      <Segment{idx} />")
+            lines.append(
+                f"      <Segment{idx} visualTransforms={{segments[{idx}].visualTransforms}} />"
+            )
         lines.append("    </Sequence>")
         cumulative_start_sec += seg["duration_sec"]
 
@@ -1035,6 +1044,7 @@ def generate_remotion_components(project_name: str) -> int:
         raise ValueError("Invalid segments structure in source JSON")
 
     joined_segments: list[dict] = []
+    assigned_aroll_indices: set[int] = set()
 
     for idx, bseg in enumerate(broll_segments):
         label = _segment_label(idx, bseg)
@@ -1042,6 +1052,7 @@ def generate_remotion_components(project_name: str) -> int:
         aroll_idx = bseg.get("aroll_segment_index")
         if not isinstance(aroll_idx, int) or aroll_idx < 0 or aroll_idx >= len(aroll_segments):
             raise ValueError(f"{label}: invalid aroll_segment_index={aroll_idx}")
+        assigned_aroll_indices.add(aroll_idx)
 
         aroll_seg = aroll_segments[aroll_idx]
         max_duration = _as_float(bseg.get("max_duration"), "max_duration")
@@ -1152,6 +1163,49 @@ def generate_remotion_components(project_name: str) -> int:
             }
         )
 
+    # Keep A-Roll segments that are not linked by any B-Roll as A-Roll-only
+    # clips in the generated composition.
+    unassigned_added = 0
+    for aroll_idx, aroll_seg in enumerate(aroll_segments):
+        if aroll_idx in assigned_aroll_indices:
+            continue
+
+        aroll_start = _as_float(aroll_seg.get("start"), "aroll.start")
+        aroll_end = _as_float(aroll_seg.get("end"), "aroll.end")
+        duration_sec = round(max(0.0, aroll_end - aroll_start), 3)
+        if duration_sec <= 0:
+            continue
+
+        clip_idx = len(broll_segments) + unassigned_added
+        aroll_public_src = _ensure_preview_segment_clip(
+            project_root=project_root,
+            project_name=project_name,
+            kind="aroll",
+            segment_index=clip_idx,
+            source_path=aroll_src_path,
+            trim_start=aroll_start,
+            duration_sec=duration_sec,
+        )
+
+        joined_segments.append(
+            {
+                "layout": "aroll_only",
+                "aroll_src": aroll_public_src,
+                "broll_src": "",
+                "aroll_trim_start": 0,
+                "broll_trim_start": 0,
+                "duration_sec": duration_sec,
+                "source_broll": {
+                    "splitRatio": 0.5,
+                    "visual_transforms": normalize_visual_transforms(aroll_seg.get("visual_transforms")),
+                },
+            }
+        )
+        unassigned_added += 1
+
+    if unassigned_added:
+        print(f"Info: added {unassigned_added} unassigned A-roll segment(s) as A-Roll Only")
+
     _write_generated_remotion_files(output_dir, joined_segments)
 
     subprocess.Popen(
@@ -1226,6 +1280,14 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             p = segments_path(self._project_dir(), "aroll.mp4")
             data = json.loads(p.read_text("utf-8")) if p.exists() else {"segments": []}
             self._json(data)
+        elif path == "/api/broll-main-segments":
+            session = self._session()
+            try:
+                broll_data, _ = load_broll_data_for_project(session["project"], "broll_main.mp4")
+            except (OSError, json.JSONDecodeError):
+                self._json({"segments": []})
+                return
+            self._json(broll_data)
         elif path == "/api/ping":
             self._json({"ok": True})
         elif path == "/api/has-audio":
@@ -1493,9 +1555,6 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
 
     def _handle_visual_transform_update(self):
         session = self._session()
-        if session["mode"] != "broll":
-            self._json({"ok": False, "error": "Visual transform updates are only available in broll mode"}, status=400)
-            return
 
         req_data = _parse_json_body(self)
         if req_data is None:
@@ -1507,13 +1566,33 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "segmentIndex must be an integer"}, status=400)
             return
 
-        try:
-            broll_data, p = load_broll_data_for_project(session["project"], session["videoFilename"])
-        except (OSError, json.JSONDecodeError):
-            self._json({"ok": False, "error": "Failed to load B-Roll segments"}, status=500)
-            return
+        if session["mode"] == "broll":
+            try:
+                data, p = load_broll_data_for_project(session["project"], session["videoFilename"])
+            except (OSError, json.JSONDecodeError):
+                self._json({"ok": False, "error": "Failed to load B-Roll segments"}, status=500)
+                return
+            segs = data.get("segments", [])
+            save_error_label = "B-Roll segments"
+        else:
+            p = segments_path(WORKSPACE / session["project"], "aroll.mp4")
+            if p.exists():
+                try:
+                    raw = json.loads(p.read_text("utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    self._json({"ok": False, "error": "Failed to load A-Roll segments"}, status=500)
+                    return
+            else:
+                raw = {
+                    "project": session["project"],
+                    "type": "aroll",
+                    "video": "aroll.mp4",
+                    "segments": [],
+                }
+            data = normalize_aroll_json(raw)
+            segs = data.get("segments", [])
+            save_error_label = "A-Roll segments"
 
-        segs = broll_data.get("segments", [])
         if not isinstance(segs, list) or seg_idx < 0 or seg_idx >= len(segs):
             self._json({"ok": False, "error": "segmentIndex out of bounds"}, status=400)
             return
@@ -1522,9 +1601,9 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
         segs[seg_idx]["visual_transforms"] = transforms
 
         try:
-            p.write_text(json.dumps(broll_data, ensure_ascii=False, indent=2), "utf-8")
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
         except OSError as exc:
-            self._json({"ok": False, "error": f"Failed to save B-Roll segments: {exc}"}, status=500)
+            self._json({"ok": False, "error": f"Failed to save {save_error_label}: {exc}"}, status=500)
             return
 
         self._json(

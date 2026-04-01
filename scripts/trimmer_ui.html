@@ -999,7 +999,8 @@
             align-items: center;
             gap: 8px;
         }
-        #transform-safe-zone-toggle {
+        #transform-safe-zone-toggle,
+        #transform-grid-toggle {
             background: var(--surface2);
             border: 1px solid var(--border);
             color: var(--text);
@@ -1009,8 +1010,10 @@
             cursor: pointer;
             white-space: nowrap;
         }
-        #transform-safe-zone-toggle:hover { border-color: var(--accent); }
-        #transform-safe-zone-toggle.active {
+        #transform-safe-zone-toggle:hover,
+        #transform-grid-toggle:hover { border-color: var(--accent); }
+        #transform-safe-zone-toggle.active,
+        #transform-grid-toggle.active {
             background: rgba(233, 69, 96, 0.25);
             border-color: var(--accent);
             color: var(--accent);
@@ -1232,6 +1235,7 @@
         <div id="transform-preview-controls">
             <div id="transform-preview-toolbar">
                 <button id="transform-safe-zone-toggle" title="Toggle Instagram safe zone overlay">Safe Zone: Off</button>
+                <button id="transform-grid-toggle" title="Toggle 3x3 composition grid overlay">Grid: Off</button>
             </div>
             <div class="preview-transform-controls">
                 <div class="preview-transform-selectors">
@@ -1287,12 +1291,15 @@ let pendingPresetConflictPayload = null;
 let previewModalOpen = false;
 let previewCurrentSegment = null;
 let previewSafeZoneVisible = false;
+let previewGridVisible = false;
 let safeZoneImage = null;
 let previewModalDragging = false;
 let previewModalDragOffsetX = 0;
 let previewModalDragOffsetY = 0;
 let previewBrollVideoEl = null;
 let previewArollVideoEl = null;
+let brollMainSegments = [];
+let assignedArollIndices = new Set();
 
 const selectedSegmentIndices = new Set();
 const STRICT_UNIQUE_AROLL_BINDING = true;
@@ -1487,7 +1494,33 @@ function transformsAreDefault(transforms) {
 }
 
 function canEditTransformsForSegment(seg) {
+    if (config.mode === 'aroll') {
+        const segIdx = segments.indexOf(seg);
+        if (segIdx < 0) return false;
+        return !assignedArollIndices.has(segIdx);
+    }
     return config.mode === 'broll' && TRANSFORM_SUPPORTED_FORMATS.has(normalizeBrollFormat(seg.broll_format));
+}
+
+function getAvailableTransformLayersForSegment(seg) {
+    if (!seg || !canEditTransformsForSegment(seg)) {
+        return [];
+    }
+    if (config.mode === 'aroll') {
+        return [{ value: 'aroll', label: 'A-Roll' }];
+    }
+    return TRANSFORM_LAYER_OPTIONS;
+}
+
+function rebuildAssignedArollIndices() {
+    const next = new Set();
+    brollMainSegments.forEach((seg) => {
+        const idx = Number(seg?.aroll_segment_index);
+        if (Number.isInteger(idx) && idx >= 0) {
+            next.add(idx);
+        }
+    });
+    assignedArollIndices = next;
 }
 
 function normalizeBrollFormat(value) {
@@ -2096,6 +2129,10 @@ async function loadSegments() {
                 seg.max_duration = null;
             }
         });
+    } else {
+        segments.forEach(seg => {
+            ensureSegmentVisualTransforms(seg);
+        });
     }
 }
 
@@ -2103,6 +2140,17 @@ async function loadArollSegments() {
     if (config.mode !== 'broll') return;
     const d = await (await fetch('/api/aroll-segments')).json();
     arollSegments = d.segments || [];
+}
+
+async function loadBrollMainSegmentsForAroll() {
+    if (config.mode !== 'aroll') return;
+    try {
+        const d = await (await fetch('/api/broll-main-segments')).json();
+        brollMainSegments = Array.isArray(d.segments) ? d.segments : [];
+    } catch (_err) {
+        brollMainSegments = [];
+    }
+    rebuildAssignedArollIndices();
 }
 
 async function reloadForSession() {
@@ -2119,8 +2167,11 @@ async function reloadForSession() {
     if (config.mode === 'broll') {
         await loadArollSegments();
         ensureBrollAssignments();
+        brollMainSegments = [];
+        assignedArollIndices = new Set();
     } else {
         arollSegments = [];
+        await loadBrollMainSegmentsForAroll();
         ensureArollSegmentIndices();
     }
     renderSegList();
@@ -2721,11 +2772,16 @@ function setTransformSaveSnapshot(seg, next) {
     updateTransformUi(seg);
 }
 
-function normalizeTransformLayerSelection(value) {
-    if (value === 'aroll' || value === 'broll') {
+function normalizeTransformLayerSelection(value, layerOptions) {
+    const options = Array.isArray(layerOptions) ? layerOptions : TRANSFORM_LAYER_OPTIONS;
+    const allowedValues = new Set(options.map((option) => option.value));
+    if (value && allowedValues.has(value)) {
         return value;
     }
-    return DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey;
+    if (allowedValues.has(DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey)) {
+        return DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey;
+    }
+    return options[0]?.value || DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey;
 }
 
 function normalizeTransformFieldSelection(value) {
@@ -2736,22 +2792,27 @@ function normalizeTransformFieldSelection(value) {
 }
 
 function getTransformPanelSelection(seg) {
+    const layerOptions = getAvailableTransformLayersForSegment(seg);
     const current = transformPanelSelection.get(seg);
     if (current && typeof current === 'object') {
         return {
-            layerKey: normalizeTransformLayerSelection(current.layerKey),
+            layerKey: normalizeTransformLayerSelection(current.layerKey, layerOptions),
             fieldKey: normalizeTransformFieldSelection(current.fieldKey),
         };
     }
-    const fallback = { ...DEFAULT_TRANSFORM_PANEL_SELECTION };
+    const fallback = {
+        layerKey: normalizeTransformLayerSelection(DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey, layerOptions),
+        fieldKey: DEFAULT_TRANSFORM_PANEL_SELECTION.fieldKey,
+    };
     transformPanelSelection.set(seg, fallback);
     return fallback;
 }
 
 function setTransformPanelSelection(seg, next) {
+    const layerOptions = getAvailableTransformLayersForSegment(seg);
     const current = getTransformPanelSelection(seg);
     transformPanelSelection.set(seg, {
-        layerKey: normalizeTransformLayerSelection(next.layerKey ?? current.layerKey),
+        layerKey: normalizeTransformLayerSelection(next.layerKey ?? current.layerKey, layerOptions),
         fieldKey: normalizeTransformFieldSelection(next.fieldKey ?? current.fieldKey),
     });
 }
@@ -2786,8 +2847,11 @@ function updateTransformUi(seg) {
 }
 
 function ensurePreviewTransformSelectors() {
-    if (!previewLayerSelect || previewLayerSelect.options.length) return;
-    TRANSFORM_LAYER_OPTIONS.forEach((option) => {
+    if (!previewLayerSelect) return;
+    const seg = previewCurrentSegment;
+    const layerOptions = getAvailableTransformLayersForSegment(seg);
+    previewLayerSelect.innerHTML = '';
+    layerOptions.forEach((option) => {
         const opt = document.createElement('option');
         opt.value = option.value;
         opt.textContent = option.label;
@@ -2815,6 +2879,7 @@ function updatePreviewTransformControls() {
 
     const seg = previewCurrentSegment;
     const canEdit = Boolean(seg && canEditTransformsForSegment(seg));
+    const layerOptions = getAvailableTransformLayersForSegment(seg);
 
     previewLayerSelect.disabled = !canEdit;
     previewControlSelect.disabled = !canEdit;
@@ -2827,7 +2892,7 @@ function updatePreviewTransformControls() {
     }
 
     const selection = getTransformPanelSelection(seg);
-    const layerKey = normalizeTransformLayerSelection(selection.layerKey);
+    const layerKey = normalizeTransformLayerSelection(selection.layerKey, layerOptions);
     const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
     const limits = TRANSFORM_LIMITS[fieldKey];
     const controlLabel = TRANSFORM_CONTROL_OPTIONS.find((opt) => opt.value === fieldKey)?.label || 'Zoom';
@@ -2854,7 +2919,7 @@ function applyPreviewTransformValue(rawValue) {
     }
 
     const selection = getTransformPanelSelection(seg);
-    const layerKey = normalizeTransformLayerSelection(selection.layerKey);
+    const layerKey = normalizeTransformLayerSelection(selection.layerKey, getAvailableTransformLayersForSegment(seg));
     const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
     const limits = TRANSFORM_LIMITS[fieldKey];
     const parsed = Number(rawValue);
@@ -3080,6 +3145,12 @@ function seekVideoToTime(videoEl, timeSec) {
 function syncPreviewVideoTimes(seg) {
     if (!seg) return;
     ensurePreviewVideosReady();
+    if (config.mode === 'aroll') {
+        const arollStart = Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0;
+        seekVideoToTime(previewArollVideoEl, arollStart);
+        seekVideoToTime(previewBrollVideoEl, 0);
+        return;
+    }
     const brollStart = Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0;
     const targetRef = getBrollTargetFromSeg(seg);
     const target = targetRef ? findArollTargetByKey(targetRef.key) : null;
@@ -3145,7 +3216,18 @@ function renderPreviewFrame() {
         const transforms = ensureSegmentVisualTransforms(seg);
         const format = normalizeBrollFormat(seg.broll_format);
         
-        if (format === 'Half-And-Half Split') {
+        if (config.mode === 'aroll') {
+            drawVideoCoverWithTransform(
+                ctx,
+                previewArollVideoEl,
+                0,
+                0,
+                canvas.width,
+                canvas.height,
+                transforms.aroll,
+                scale
+            );
+        } else if (format === 'Half-And-Half Split') {
             // Keep preview fixed at an exact 50/50 split for Half-And-Half.
             const topHeight = Math.floor(targetHeight * 0.5);
             const bottomHeight = canvas.height - topHeight;
@@ -3193,6 +3275,27 @@ function renderPreviewFrame() {
         }
     } catch (e) {
         console.warn('Error drawing preview frame:', e);
+    }
+
+    if (previewGridVisible) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+        ctx.lineWidth = 5.0;
+        for (let i = 1; i < 3; i += 1) {
+            const x = (canvas.width / 3) * i;
+            const y = (canvas.height / 3) * i;
+
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvas.width, y);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
     
     // Draw safe zone overlay if enabled
@@ -4053,26 +4156,20 @@ function renderSegList() {
             playSegmentPrecisely(seg);
         }));
 
-        if (config.mode === 'broll') {
-            const supportsTransforms = canEditTransformsForSegment(seg);
-            if (!supportsTransforms) {
-                transformPanelOpen.set(seg, false);
-            }
+        const supportsTransforms = canEditTransformsForSegment(seg);
+        const showArollTransformButton = config.mode === 'aroll' && supportsTransforms;
 
+        if (config.mode === 'broll' || showArollTransformButton) {
             const transformBtn = mkBtn('transform-toggle', 'Transform', (e) => {
                 e.stopPropagation();
                 if (!supportsTransforms) return;
-                const nextOpen = !Boolean(transformPanelOpen.get(seg));
-                transformPanelOpen.set(seg, nextOpen);
-                
+
                 // Open preview modal when Transform is clicked
                 openPreviewModal(seg);
-                
-                renderSegList();
             });
             transformBtn.disabled = !supportsTransforms;
             transformBtn.title = supportsTransforms
-                ? 'Show or hide visual transforms'
+                ? 'Open transform preview'
                 : 'Transforms are currently supported only for Half-And-Half Split';
 
             const editedDot = document.createElement('span');
@@ -4207,6 +4304,17 @@ function renderSegList() {
                 retryBtn,
             });
             updateTransformUi(seg);
+
+            if (config.mode !== 'broll') {
+                item.appendChild(acts);
+                if (config.mode === 'aroll') {
+                    acts.appendChild(mkBtn('', '⌥ Partition', () => {
+                        openPartitionModal(i, seg);
+                    }));
+                }
+                segList.appendChild(item);
+                return;
+            }
         }
         
         /* ── A-Roll: Partition button ──────────────────── */
@@ -4294,9 +4402,6 @@ function renderSegList() {
             });
             fmtSel.addEventListener('change', () => {
                 seg.broll_format = normalizeBrollFormat(fmtSel.value);
-                if (!canEditTransformsForSegment(seg)) {
-                    transformPanelOpen.set(seg, false);
-                }
                 renderSegList();
                 scheduleSave();
             });
@@ -4325,149 +4430,6 @@ function renderSegList() {
                 arow.appendChild(w);
             }
             item.appendChild(arow);
-        }
-
-        if (config.mode === 'broll') {
-            const supportsTransforms = canEditTransformsForSegment(seg);
-            const panelOpen = Boolean(transformPanelOpen.get(seg));
-
-            if (!supportsTransforms) {
-                const unsupportedNote = document.createElement('div');
-                unsupportedNote.className = 'transform-unsupported-note';
-                unsupportedNote.textContent = 'Transform controls are available for Half-And-Half Split only.';
-                item.appendChild(unsupportedNote);
-            }
-
-            if (supportsTransforms && panelOpen) {
-                const panel = document.createElement('div');
-                panel.className = 'transform-panel';
-
-                const selection = getTransformPanelSelection(seg);
-
-                const selectorRow = document.createElement('div');
-                selectorRow.className = 'transform-selector-row';
-
-                const layerField = document.createElement('div');
-                layerField.className = 'transform-selector-field';
-                const layerLabel = document.createElement('label');
-                layerLabel.className = 'transform-selector-label';
-                layerLabel.textContent = 'Layer';
-                const layerSelect = document.createElement('select');
-                layerSelect.className = 'toolbar-select transform-select';
-                TRANSFORM_LAYER_OPTIONS.forEach((option) => {
-                    const opt = document.createElement('option');
-                    opt.value = option.value;
-                    opt.textContent = option.label;
-                    if (option.value === selection.layerKey) {
-                        opt.selected = true;
-                    }
-                    layerSelect.appendChild(opt);
-                });
-                layerSelect.addEventListener('change', () => {
-                    setTransformPanelSelection(seg, { layerKey: layerSelect.value });
-                    renderSegList();
-                });
-                layerField.append(layerLabel, layerSelect);
-
-                const controlField = document.createElement('div');
-                controlField.className = 'transform-selector-field';
-                const controlLabel = document.createElement('label');
-                controlLabel.className = 'transform-selector-label';
-                controlLabel.textContent = 'Control';
-                const controlSelect = document.createElement('select');
-                controlSelect.className = 'toolbar-select transform-select';
-                TRANSFORM_CONTROL_OPTIONS.forEach((option) => {
-                    const opt = document.createElement('option');
-                    opt.value = option.value;
-                    opt.textContent = option.label;
-                    if (option.value === selection.fieldKey) {
-                        opt.selected = true;
-                    }
-                    controlSelect.appendChild(opt);
-                });
-                controlSelect.addEventListener('change', () => {
-                    setTransformPanelSelection(seg, { fieldKey: controlSelect.value });
-                    renderSegList();
-                });
-                controlField.append(controlLabel, controlSelect);
-
-                selectorRow.append(layerField, controlField);
-                panel.appendChild(selectorRow);
-
-                const selectedLayer = normalizeTransformLayerSelection(selection.layerKey);
-                const selectedField = normalizeTransformFieldSelection(selection.fieldKey);
-                const selectedLayerLabel = TRANSFORM_LAYER_OPTIONS.find((opt) => opt.value === selectedLayer)?.label || 'A-Roll';
-                const selectedControlLabel = TRANSFORM_CONTROL_OPTIONS.find((opt) => opt.value === selectedField)?.label || 'Zoom';
-
-                const group = document.createElement('div');
-                group.className = 'transform-group';
-
-                const groupLabel = document.createElement('div');
-                groupLabel.className = 'transform-group-label';
-                groupLabel.textContent = `${selectedLayerLabel} • ${selectedControlLabel}`;
-                group.appendChild(groupLabel);
-
-                const limits = TRANSFORM_LIMITS[selectedField];
-                const rowEl = document.createElement('div');
-                rowEl.className = 'transform-field';
-
-                const labelEl = document.createElement('label');
-                labelEl.className = 'transform-field-label';
-                labelEl.textContent = selectedControlLabel;
-
-                const slider = document.createElement('input');
-                slider.className = 'transform-slider';
-                slider.type = 'range';
-                slider.min = String(limits.min);
-                slider.max = String(limits.max);
-                slider.step = String(limits.step);
-
-                const number = document.createElement('input');
-                number.className = 'transform-number';
-                number.type = 'number';
-                number.min = String(limits.min);
-                number.max = String(limits.max);
-                number.step = String(limits.step);
-
-                const syncDisplay = () => {
-                    const v = ensureSegmentVisualTransforms(seg)[selectedLayer][selectedField];
-                    slider.value = String(v);
-                    number.value = Number(v).toFixed(limits.decimals);
-                };
-
-                const applyValue = (rawValue) => {
-                    const parsed = Number(rawValue);
-                    if (!Number.isFinite(parsed)) {
-                        syncDisplay();
-                        return;
-                    }
-                    const nextVal = clamp(parsed, limits.min, limits.max);
-                    setTransformValue(seg, selectedLayer, selectedField, nextVal);
-                    syncDisplay();
-                };
-
-                slider.addEventListener('input', () => {
-                    applyValue(slider.value);
-                });
-                number.addEventListener('change', () => {
-                    applyValue(number.value);
-                });
-                number.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        applyValue(number.value);
-                    }
-                });
-                number.addEventListener('blur', () => {
-                    syncDisplay();
-                });
-
-                syncDisplay();
-                rowEl.append(labelEl, slider, number);
-                group.appendChild(rowEl);
-                panel.appendChild(group);
-                item.appendChild(panel);
-            }
         }
 
         /* ── Click to activate ─────────────────────────── */
@@ -4741,6 +4703,19 @@ document.getElementById('transform-safe-zone-toggle').addEventListener('click', 
     } else {
         btn.classList.remove('active');
         btn.textContent = 'Safe Zone: Off';
+    }
+    renderPreviewFrame();
+});
+
+document.getElementById('transform-grid-toggle').addEventListener('click', () => {
+    previewGridVisible = !previewGridVisible;
+    const btn = document.getElementById('transform-grid-toggle');
+    if (previewGridVisible) {
+        btn.classList.add('active');
+        btn.textContent = 'Grid: On';
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = 'Grid: Off';
     }
     renderPreviewFrame();
 });
