@@ -398,6 +398,28 @@
             flex-direction: column;
             gap: 10px;
         }
+        .transform-selector-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .transform-selector-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1 1 150px;
+            min-width: 0;
+        }
+        .transform-selector-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 0.2px;
+            text-transform: uppercase;
+        }
+        .transform-select {
+            width: 100%;
+            min-width: 0;
+        }
         .transform-group {
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -964,12 +986,18 @@
         #transform-preview-close:hover { color: var(--accent); }
         #transform-preview-controls {
             display: flex;
-            align-items: center;
+            flex-direction: column;
+            align-items: stretch;
             gap: 8px;
             padding: 8px 12px;
             border-bottom: 1px solid var(--border);
             background: rgba(0, 0, 0, 0.1);
             flex-shrink: 0;
+        }
+        #transform-preview-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         #transform-safe-zone-toggle {
             background: var(--surface2);
@@ -986,6 +1014,26 @@
             background: rgba(233, 69, 96, 0.25);
             border-color: var(--accent);
             color: var(--accent);
+        }
+        .preview-transform-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .preview-transform-selectors {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .preview-transform-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.2px;
+            margin-bottom: 3px;
+        }
+        #transform-preview-slider-row {
+            margin-bottom: 0;
         }
         #transform-preview-stage {
             padding: 10px 12px 12px;
@@ -1182,7 +1230,26 @@
             <button id="transform-preview-close" title="Close preview window">×</button>
         </div>
         <div id="transform-preview-controls">
-            <button id="transform-safe-zone-toggle" title="Toggle Instagram safe zone overlay">Safe Zone: Off</button>
+            <div id="transform-preview-toolbar">
+                <button id="transform-safe-zone-toggle" title="Toggle Instagram safe zone overlay">Safe Zone: Off</button>
+            </div>
+            <div class="preview-transform-controls">
+                <div class="preview-transform-selectors">
+                    <div>
+                        <div class="preview-transform-label">Layer</div>
+                        <select id="transform-preview-layer-select" class="toolbar-select transform-select"></select>
+                    </div>
+                    <div>
+                        <div class="preview-transform-label">Control</div>
+                        <select id="transform-preview-control-select" class="toolbar-select transform-select"></select>
+                    </div>
+                </div>
+                <div id="transform-preview-slider-row" class="transform-field">
+                    <label id="transform-preview-slider-label" class="transform-field-label">Zoom</label>
+                    <input id="transform-preview-slider" class="transform-slider" type="range">
+                    <input id="transform-preview-number" class="transform-number" type="number">
+                </div>
+            </div>
         </div>
         <div id="transform-preview-stage">
             <canvas id="transform-preview-canvas"></canvas>
@@ -1235,6 +1302,7 @@ const transformSaveTimer = new WeakMap();
 const transformSaveSequence = new WeakMap();
 const transformSaveState = new WeakMap();
 const transformUiRefs = new WeakMap();
+const transformPanelSelection = new WeakMap();
 const BROLL_FORMAT_OPTIONS = [
     'A-Roll Only',    
     'B-Roll Only',
@@ -1243,6 +1311,16 @@ const BROLL_FORMAT_OPTIONS = [
 ];
 const DEFAULT_BROLL_FORMAT = 'Half-And-Half Split';
 const TRANSFORM_SUPPORTED_FORMATS = new Set(['Half-And-Half Split']);
+const TRANSFORM_LAYER_OPTIONS = [
+    { value: 'aroll', label: 'A-Roll' },
+    { value: 'broll', label: 'B-Roll' },
+];
+const TRANSFORM_CONTROL_OPTIONS = [
+    { value: 'zoom', label: 'Zoom' },
+    { value: 'posX', label: 'Position X' },
+    { value: 'posY', label: 'Position Y' },
+];
+const DEFAULT_TRANSFORM_PANEL_SELECTION = { layerKey: 'aroll', fieldKey: 'zoom' };
 const TRANSFORM_LIMITS = {
     zoom: { min: 0.5, max: 2.0, step: 0.01, decimals: 2 },
     posX: { min: -600, max: 600, step: 1, decimals: 0 },
@@ -1334,6 +1412,11 @@ const bulkToast = document.getElementById('bulk-toast');
 const bulkToastMessage = document.getElementById('bulk-toast-message');
 const bulkToastUndo = document.getElementById('bulk-toast-undo');
 const bulkToastClose = document.getElementById('bulk-toast-close');
+const previewLayerSelect = document.getElementById('transform-preview-layer-select');
+const previewControlSelect = document.getElementById('transform-preview-control-select');
+const previewSliderLabel = document.getElementById('transform-preview-slider-label');
+const previewSlider = document.getElementById('transform-preview-slider');
+const previewNumber = document.getElementById('transform-preview-number');
 
 /* ── Helpers ───────────────────────────────────────────────── */
 function fmt(s) {
@@ -2638,6 +2721,41 @@ function setTransformSaveSnapshot(seg, next) {
     updateTransformUi(seg);
 }
 
+function normalizeTransformLayerSelection(value) {
+    if (value === 'aroll' || value === 'broll') {
+        return value;
+    }
+    return DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey;
+}
+
+function normalizeTransformFieldSelection(value) {
+    if (value && Object.prototype.hasOwnProperty.call(TRANSFORM_LIMITS, value)) {
+        return value;
+    }
+    return DEFAULT_TRANSFORM_PANEL_SELECTION.fieldKey;
+}
+
+function getTransformPanelSelection(seg) {
+    const current = transformPanelSelection.get(seg);
+    if (current && typeof current === 'object') {
+        return {
+            layerKey: normalizeTransformLayerSelection(current.layerKey),
+            fieldKey: normalizeTransformFieldSelection(current.fieldKey),
+        };
+    }
+    const fallback = { ...DEFAULT_TRANSFORM_PANEL_SELECTION };
+    transformPanelSelection.set(seg, fallback);
+    return fallback;
+}
+
+function setTransformPanelSelection(seg, next) {
+    const current = getTransformPanelSelection(seg);
+    transformPanelSelection.set(seg, {
+        layerKey: normalizeTransformLayerSelection(next.layerKey ?? current.layerKey),
+        fieldKey: normalizeTransformFieldSelection(next.fieldKey ?? current.fieldKey),
+    });
+}
+
 function updateTransformUi(seg) {
     const refs = transformUiRefs.get(seg);
     if (!refs) return;
@@ -2665,6 +2783,90 @@ function updateTransformUi(seg) {
     if (refs.retryBtn) {
         refs.retryBtn.style.display = state.status === 'error' ? 'inline-flex' : 'none';
     }
+}
+
+function ensurePreviewTransformSelectors() {
+    if (!previewLayerSelect || previewLayerSelect.options.length) return;
+    TRANSFORM_LAYER_OPTIONS.forEach((option) => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        previewLayerSelect.appendChild(opt);
+    });
+}
+
+function ensurePreviewControlSelectors() {
+    if (!previewControlSelect || previewControlSelect.options.length) return;
+    TRANSFORM_CONTROL_OPTIONS.forEach((option) => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        previewControlSelect.appendChild(opt);
+    });
+}
+
+function updatePreviewTransformControls() {
+    ensurePreviewTransformSelectors();
+    ensurePreviewControlSelectors();
+
+    if (!previewLayerSelect || !previewControlSelect || !previewSlider || !previewNumber || !previewSliderLabel) {
+        return;
+    }
+
+    const seg = previewCurrentSegment;
+    const canEdit = Boolean(seg && canEditTransformsForSegment(seg));
+
+    previewLayerSelect.disabled = !canEdit;
+    previewControlSelect.disabled = !canEdit;
+    previewSlider.disabled = !canEdit;
+    previewNumber.disabled = !canEdit;
+
+    if (!canEdit) {
+        previewSliderLabel.textContent = 'Zoom';
+        return;
+    }
+
+    const selection = getTransformPanelSelection(seg);
+    const layerKey = normalizeTransformLayerSelection(selection.layerKey);
+    const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
+    const limits = TRANSFORM_LIMITS[fieldKey];
+    const controlLabel = TRANSFORM_CONTROL_OPTIONS.find((opt) => opt.value === fieldKey)?.label || 'Zoom';
+    const value = ensureSegmentVisualTransforms(seg)[layerKey][fieldKey];
+
+    previewLayerSelect.value = layerKey;
+    previewControlSelect.value = fieldKey;
+    previewSliderLabel.textContent = controlLabel;
+    previewSlider.min = String(limits.min);
+    previewSlider.max = String(limits.max);
+    previewSlider.step = String(limits.step);
+    previewNumber.min = String(limits.min);
+    previewNumber.max = String(limits.max);
+    previewNumber.step = String(limits.step);
+    previewSlider.value = String(value);
+    previewNumber.value = Number(value).toFixed(limits.decimals);
+}
+
+function applyPreviewTransformValue(rawValue) {
+    const seg = previewCurrentSegment;
+    if (!seg || !canEditTransformsForSegment(seg)) {
+        updatePreviewTransformControls();
+        return;
+    }
+
+    const selection = getTransformPanelSelection(seg);
+    const layerKey = normalizeTransformLayerSelection(selection.layerKey);
+    const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
+    const limits = TRANSFORM_LIMITS[fieldKey];
+    const parsed = Number(rawValue);
+
+    if (!Number.isFinite(parsed)) {
+        updatePreviewTransformControls();
+        return;
+    }
+
+    const nextVal = clamp(parsed, limits.min, limits.max);
+    setTransformValue(seg, layerKey, fieldKey, nextVal);
+    updatePreviewTransformControls();
 }
 
 function closeOverflowMenu() {
@@ -2707,6 +2909,9 @@ function setTransformValue(seg, layerName, fieldName, value) {
     seg.visual_transforms = normalizedNext;
     updateTransformUi(seg);
     scheduleVisualTransformSave(seg);
+    if (previewModalOpen && previewCurrentSegment === seg) {
+        updatePreviewTransformControls();
+    }
 }
 
 function applyLayerCopy(seg, fromLayer, toLayer) {
@@ -3032,6 +3237,7 @@ function openPreviewModal(seg) {
     syncPreviewVideoTimes(seg);
     previewCurrentSegment = seg;
     previewModalOpen = true;
+    updatePreviewTransformControls();
     
     const modal = document.getElementById('transform-preview-modal');
     modal.classList.add('open');
@@ -4136,84 +4342,130 @@ function renderSegList() {
                 const panel = document.createElement('div');
                 panel.className = 'transform-panel';
 
-                const makeGroup = (layerKey, label) => {
-                    const group = document.createElement('div');
-                    group.className = 'transform-group';
+                const selection = getTransformPanelSelection(seg);
 
-                    const groupLabel = document.createElement('div');
-                    groupLabel.className = 'transform-group-label';
-                    groupLabel.textContent = label;
-                    group.appendChild(groupLabel);
+                const selectorRow = document.createElement('div');
+                selectorRow.className = 'transform-selector-row';
 
-                    const addField = (fieldKey, fieldLabel) => {
-                        const limits = TRANSFORM_LIMITS[fieldKey];
-                        const rowEl = document.createElement('div');
-                        rowEl.className = 'transform-field';
+                const layerField = document.createElement('div');
+                layerField.className = 'transform-selector-field';
+                const layerLabel = document.createElement('label');
+                layerLabel.className = 'transform-selector-label';
+                layerLabel.textContent = 'Layer';
+                const layerSelect = document.createElement('select');
+                layerSelect.className = 'toolbar-select transform-select';
+                TRANSFORM_LAYER_OPTIONS.forEach((option) => {
+                    const opt = document.createElement('option');
+                    opt.value = option.value;
+                    opt.textContent = option.label;
+                    if (option.value === selection.layerKey) {
+                        opt.selected = true;
+                    }
+                    layerSelect.appendChild(opt);
+                });
+                layerSelect.addEventListener('change', () => {
+                    setTransformPanelSelection(seg, { layerKey: layerSelect.value });
+                    renderSegList();
+                });
+                layerField.append(layerLabel, layerSelect);
 
-                        const labelEl = document.createElement('label');
-                        labelEl.className = 'transform-field-label';
-                        labelEl.textContent = fieldLabel;
+                const controlField = document.createElement('div');
+                controlField.className = 'transform-selector-field';
+                const controlLabel = document.createElement('label');
+                controlLabel.className = 'transform-selector-label';
+                controlLabel.textContent = 'Control';
+                const controlSelect = document.createElement('select');
+                controlSelect.className = 'toolbar-select transform-select';
+                TRANSFORM_CONTROL_OPTIONS.forEach((option) => {
+                    const opt = document.createElement('option');
+                    opt.value = option.value;
+                    opt.textContent = option.label;
+                    if (option.value === selection.fieldKey) {
+                        opt.selected = true;
+                    }
+                    controlSelect.appendChild(opt);
+                });
+                controlSelect.addEventListener('change', () => {
+                    setTransformPanelSelection(seg, { fieldKey: controlSelect.value });
+                    renderSegList();
+                });
+                controlField.append(controlLabel, controlSelect);
 
-                        const slider = document.createElement('input');
-                        slider.className = 'transform-slider';
-                        slider.type = 'range';
-                        slider.min = String(limits.min);
-                        slider.max = String(limits.max);
-                        slider.step = String(limits.step);
+                selectorRow.append(layerField, controlField);
+                panel.appendChild(selectorRow);
 
-                        const number = document.createElement('input');
-                        number.className = 'transform-number';
-                        number.type = 'number';
-                        number.min = String(limits.min);
-                        number.max = String(limits.max);
-                        number.step = String(limits.step);
+                const selectedLayer = normalizeTransformLayerSelection(selection.layerKey);
+                const selectedField = normalizeTransformFieldSelection(selection.fieldKey);
+                const selectedLayerLabel = TRANSFORM_LAYER_OPTIONS.find((opt) => opt.value === selectedLayer)?.label || 'A-Roll';
+                const selectedControlLabel = TRANSFORM_CONTROL_OPTIONS.find((opt) => opt.value === selectedField)?.label || 'Zoom';
 
-                        const syncDisplay = () => {
-                            const v = ensureSegmentVisualTransforms(seg)[layerKey][fieldKey];
-                            slider.value = String(v);
-                            number.value = Number(v).toFixed(limits.decimals);
-                        };
+                const group = document.createElement('div');
+                group.className = 'transform-group';
 
-                        const applyValue = (rawValue) => {
-                            const parsed = Number(rawValue);
-                            if (!Number.isFinite(parsed)) {
-                                syncDisplay();
-                                return;
-                            }
-                            const nextVal = clamp(parsed, limits.min, limits.max);
-                            setTransformValue(seg, layerKey, fieldKey, nextVal);
-                            syncDisplay();
-                        };
+                const groupLabel = document.createElement('div');
+                groupLabel.className = 'transform-group-label';
+                groupLabel.textContent = `${selectedLayerLabel} • ${selectedControlLabel}`;
+                group.appendChild(groupLabel);
 
-                        slider.addEventListener('input', () => {
-                            applyValue(slider.value);
-                        });
-                        number.addEventListener('change', () => {
-                            applyValue(number.value);
-                        });
-                        number.addEventListener('keydown', (e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                applyValue(number.value);
-                            }
-                        });
-                        number.addEventListener('blur', () => {
-                            syncDisplay();
-                        });
+                const limits = TRANSFORM_LIMITS[selectedField];
+                const rowEl = document.createElement('div');
+                rowEl.className = 'transform-field';
 
-                        syncDisplay();
-                        rowEl.append(labelEl, slider, number);
-                        group.appendChild(rowEl);
-                    };
+                const labelEl = document.createElement('label');
+                labelEl.className = 'transform-field-label';
+                labelEl.textContent = selectedControlLabel;
 
-                    addField('zoom', 'Zoom');
-                    addField('posX', 'X');
-                    addField('posY', 'Y');
-                    return group;
+                const slider = document.createElement('input');
+                slider.className = 'transform-slider';
+                slider.type = 'range';
+                slider.min = String(limits.min);
+                slider.max = String(limits.max);
+                slider.step = String(limits.step);
+
+                const number = document.createElement('input');
+                number.className = 'transform-number';
+                number.type = 'number';
+                number.min = String(limits.min);
+                number.max = String(limits.max);
+                number.step = String(limits.step);
+
+                const syncDisplay = () => {
+                    const v = ensureSegmentVisualTransforms(seg)[selectedLayer][selectedField];
+                    slider.value = String(v);
+                    number.value = Number(v).toFixed(limits.decimals);
                 };
 
-                panel.appendChild(makeGroup('aroll', 'A-Roll'));
-                panel.appendChild(makeGroup('broll', 'B-Roll'));
+                const applyValue = (rawValue) => {
+                    const parsed = Number(rawValue);
+                    if (!Number.isFinite(parsed)) {
+                        syncDisplay();
+                        return;
+                    }
+                    const nextVal = clamp(parsed, limits.min, limits.max);
+                    setTransformValue(seg, selectedLayer, selectedField, nextVal);
+                    syncDisplay();
+                };
+
+                slider.addEventListener('input', () => {
+                    applyValue(slider.value);
+                });
+                number.addEventListener('change', () => {
+                    applyValue(number.value);
+                });
+                number.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        applyValue(number.value);
+                    }
+                });
+                number.addEventListener('blur', () => {
+                    syncDisplay();
+                });
+
+                syncDisplay();
+                rowEl.append(labelEl, slider, number);
+                group.appendChild(rowEl);
+                panel.appendChild(group);
                 item.appendChild(panel);
             }
         }
@@ -4491,6 +4743,44 @@ document.getElementById('transform-safe-zone-toggle').addEventListener('click', 
         btn.textContent = 'Safe Zone: Off';
     }
     renderPreviewFrame();
+});
+
+previewLayerSelect.addEventListener('change', () => {
+    if (!previewCurrentSegment) return;
+    setTransformPanelSelection(previewCurrentSegment, { layerKey: previewLayerSelect.value });
+    updatePreviewTransformControls();
+    renderPreviewFrame();
+    renderSegList();
+});
+
+previewControlSelect.addEventListener('change', () => {
+    if (!previewCurrentSegment) return;
+    setTransformPanelSelection(previewCurrentSegment, { fieldKey: previewControlSelect.value });
+    updatePreviewTransformControls();
+    renderPreviewFrame();
+    renderSegList();
+});
+
+previewSlider.addEventListener('input', () => {
+    applyPreviewTransformValue(previewSlider.value);
+    renderPreviewFrame();
+});
+
+previewNumber.addEventListener('change', () => {
+    applyPreviewTransformValue(previewNumber.value);
+    renderPreviewFrame();
+});
+
+previewNumber.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        applyPreviewTransformValue(previewNumber.value);
+        renderPreviewFrame();
+    }
+});
+
+previewNumber.addEventListener('blur', () => {
+    updatePreviewTransformControls();
 });
 
 // Modal dragging functionality

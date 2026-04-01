@@ -15,13 +15,13 @@
       "visual_transforms": {
         "aroll": {
           "zoom": 0.99,
-          "posX": -23.0,
-          "posY": 402.0
+          "posX": -57.0,
+          "posY": 459.0
         },
         "broll": {
-          "zoom": 1.27,
-          "posX": -43.0,
-          "posY": 181.0
+          "zoom": 1.21,
+          "posX": -3.0,
+          "posY": 245.0
         }
       },
       "aroll_partition_index": 0
