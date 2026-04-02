@@ -11,6 +11,7 @@ type SegmentTransforms = {
 export const Segment2: React.FC<{ visualTransforms: SegmentTransforms }> = ({ visualTransforms }) => (
     <ARollOnly
         arollSrc={staticFile("sports_production_aroll_seg002.mp4")}
+        arollSourceSize={{ width: 1920, height: 3414 }}
         arollTrimStart={0}
         durationSec={4.852}
         arollTransform={visualTransforms.aroll}

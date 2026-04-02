@@ -2869,6 +2869,69 @@ function ensurePreviewControlSelectors() {
     });
 }
 
+function getPreviewLayerViewport(seg, layerKey) {
+    const targetWidth = 1080;
+    const targetHeight = 1920;
+
+    if (config.mode === 'aroll') {
+        return { width: targetWidth, height: targetHeight };
+    }
+
+    const format = normalizeBrollFormat(seg?.broll_format);
+    if (format === 'Half-And-Half Split') {
+        const safeSplitRatio = clamp(
+            Number.isFinite(Number(seg?.splitRatio)) ? Number(seg.splitRatio) : 0.5,
+            0,
+            1
+        );
+        const topHeight = Math.floor(targetHeight * safeSplitRatio);
+        const bottomHeight = targetHeight - topHeight;
+        if (layerKey === 'broll') {
+            return { width: targetWidth, height: Math.max(1, topHeight) };
+        }
+        return { width: targetWidth, height: Math.max(1, bottomHeight) };
+    }
+
+    return { width: targetWidth, height: targetHeight };
+}
+
+function getPreviewLayerVideoEl(layerKey) {
+    return layerKey === 'broll' ? previewBrollVideoEl : previewArollVideoEl;
+}
+
+function getDynamicPreviewLimits(seg, layerKey, fieldKey) {
+    const fallback = TRANSFORM_LIMITS[fieldKey] || TRANSFORM_LIMITS.zoom;
+    if (!seg || fieldKey === 'zoom') return fallback;
+
+    const videoEl = getPreviewLayerVideoEl(layerKey);
+    if (!videoEl || videoEl.readyState < 2 || !videoEl.videoWidth || !videoEl.videoHeight) {
+        return fallback;
+    }
+
+    const transforms = ensureSegmentVisualTransforms(seg);
+    const layer = transforms[layerKey] || DEFAULT_LAYER_TRANSFORM;
+    const zoom = Math.max(0.1, Number.isFinite(Number(layer.zoom)) ? Number(layer.zoom) : 1);
+    const viewport = getPreviewLayerViewport(seg, layerKey);
+
+    const coverScale = Math.max(viewport.width / videoEl.videoWidth, viewport.height / videoEl.videoHeight);
+    const baseDrawW = videoEl.videoWidth * coverScale;
+    const baseDrawH = videoEl.videoHeight * coverScale;
+    const maxOffsetX = Math.max(0, (baseDrawW * zoom - viewport.width) / 2);
+    const maxOffsetY = Math.max(0, (baseDrawH * zoom - viewport.height) / 2);
+
+    if (fieldKey === 'posX') {
+        const span = Math.max(Math.ceil(maxOffsetX), Math.abs(fallback.min), Math.abs(fallback.max));
+        return { ...fallback, min: -span, max: span };
+    }
+
+    if (fieldKey === 'posY') {
+        const span = Math.max(Math.ceil(maxOffsetY), Math.abs(fallback.min), Math.abs(fallback.max));
+        return { ...fallback, min: -span, max: span };
+    }
+
+    return fallback;
+}
+
 function updatePreviewTransformControls() {
     ensurePreviewTransformSelectors();
     ensurePreviewControlSelectors();
@@ -2894,7 +2957,7 @@ function updatePreviewTransformControls() {
     const selection = getTransformPanelSelection(seg);
     const layerKey = normalizeTransformLayerSelection(selection.layerKey, layerOptions);
     const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
-    const limits = TRANSFORM_LIMITS[fieldKey];
+    const limits = getDynamicPreviewLimits(seg, layerKey, fieldKey);
     const controlLabel = TRANSFORM_CONTROL_OPTIONS.find((opt) => opt.value === fieldKey)?.label || 'Zoom';
     const value = ensureSegmentVisualTransforms(seg)[layerKey][fieldKey];
 
@@ -2921,7 +2984,7 @@ function applyPreviewTransformValue(rawValue) {
     const selection = getTransformPanelSelection(seg);
     const layerKey = normalizeTransformLayerSelection(selection.layerKey, getAvailableTransformLayersForSegment(seg));
     const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
-    const limits = TRANSFORM_LIMITS[fieldKey];
+    const limits = getDynamicPreviewLimits(seg, layerKey, fieldKey);
     const parsed = Number(rawValue);
 
     if (!Number.isFinite(parsed)) {
@@ -3159,16 +3222,19 @@ function syncPreviewVideoTimes(seg) {
     seekVideoToTime(previewArollVideoEl, arollStart);
 }
 
-function drawVideoCoverWithTransform(ctx, videoEl, clipX, clipY, clipW, clipH, layerTransform, pixelScale) {
+function drawVideoCoverWithTransform(ctx, videoEl, clipX, clipY, clipW, clipH, layerTransform) {
     if (!videoEl || videoEl.readyState < 2 || !videoEl.videoWidth || !videoEl.videoHeight) return;
 
     const zoom = Number(layerTransform?.zoom) || 1;
-    const posX = Number(layerTransform?.posX) || 0;
-    const posY = Number(layerTransform?.posY) || 0;
-
     const coverScale = Math.max(clipW / videoEl.videoWidth, clipH / videoEl.videoHeight);
     const drawW = videoEl.videoWidth * coverScale;
     const drawH = videoEl.videoHeight * coverScale;
+    const maxOffsetX = Math.max(0, ((drawW * zoom) - clipW) / 2);
+    const maxOffsetY = Math.max(0, ((drawH * zoom) - clipH) / 2);
+    const rawPosX = Number(layerTransform?.posX) || 0;
+    const rawPosY = Number(layerTransform?.posY) || 0;
+    const posX = clamp(rawPosX, -maxOffsetX, maxOffsetX);
+    const posY = clamp(rawPosY, -maxOffsetY, maxOffsetY);
 
     ctx.save();
     ctx.beginPath();
@@ -3176,8 +3242,8 @@ function drawVideoCoverWithTransform(ctx, videoEl, clipX, clipY, clipW, clipH, l
     ctx.clip();
 
     ctx.translate(
-        clipX + (clipW / 2) + (posX * pixelScale),
-        clipY + (clipH / 2) + (posY * pixelScale)
+        clipX + (clipW / 2) + posX,
+        clipY + (clipH / 2) + posY
     );
     ctx.scale(zoom, zoom);
     ctx.drawImage(videoEl, -drawW / 2, -drawH / 2, drawW, drawH);
@@ -3202,8 +3268,6 @@ function renderPreviewFrame() {
     // Render at native 9:16 coordinates to match Remotion composition math.
     const targetWidth = 1080;
     const targetHeight = 1920;
-    const scale = 360 / targetWidth;
-
     if (canvas.width !== targetWidth) canvas.width = targetWidth;
     if (canvas.height !== targetHeight) canvas.height = targetHeight;
     
@@ -3224,12 +3288,15 @@ function renderPreviewFrame() {
                 0,
                 canvas.width,
                 canvas.height,
-                transforms.aroll,
-                scale
+                transforms.aroll
             );
         } else if (format === 'Half-And-Half Split') {
-            // Keep preview fixed at an exact 50/50 split for Half-And-Half.
-            const topHeight = Math.floor(targetHeight * 0.5);
+            const safeSplitRatio = clamp(
+                Number.isFinite(Number(seg.splitRatio)) ? Number(seg.splitRatio) : 0.5,
+                0,
+                1
+            );
+            const topHeight = Math.floor(targetHeight * safeSplitRatio);
             const bottomHeight = canvas.height - topHeight;
 
             drawVideoCoverWithTransform(
@@ -3239,8 +3306,7 @@ function renderPreviewFrame() {
                 0,
                 canvas.width,
                 topHeight,
-                transforms.broll,
-                scale
+                transforms.broll
             );
 
             drawVideoCoverWithTransform(
@@ -3250,8 +3316,7 @@ function renderPreviewFrame() {
                 topHeight,
                 canvas.width,
                 bottomHeight,
-                transforms.aroll,
-                scale
+                transforms.aroll
             );
 
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -3269,8 +3334,7 @@ function renderPreviewFrame() {
                 0,
                 canvas.width,
                 canvas.height,
-                transforms.broll,
-                scale
+                transforms.broll
             );
         }
     } catch (e) {

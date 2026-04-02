@@ -872,8 +872,85 @@ def _ensure_preview_segment_clip(
     return filename
 
 
+def _probe_video_dimensions(video_path: Path) -> dict[str, int]:
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,side_data_list:stream_tags=rotate",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f"Failed to probe video dimensions for {video_path.name}: ffprobe timed out") from exc
+
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "ffprobe failed").strip()
+        raise ValueError(f"Failed to probe video dimensions for {video_path.name}: {err}")
+
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Failed to parse ffprobe JSON for {video_path.name}") from exc
+
+    streams = payload.get("streams", []) if isinstance(payload, dict) else []
+    if not isinstance(streams, list) or not streams:
+        raise ValueError(f"No video stream found while probing dimensions for {video_path.name}")
+
+    stream = streams[0] if isinstance(streams[0], dict) else {}
+
+    try:
+        width = int(stream.get("width"))
+        height = int(stream.get("height"))
+    except ValueError as exc:
+        raise ValueError(f"Invalid video dimensions for {video_path.name}") from exc
+
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid non-positive dimensions for {video_path.name}: {width}x{height}")
+
+    rotation_degrees: float | None = None
+    side_data_list = stream.get("side_data_list", [])
+    if isinstance(side_data_list, list):
+        for side_data in side_data_list:
+            if not isinstance(side_data, dict):
+                continue
+            rotation = side_data.get("rotation")
+            try:
+                if rotation is not None:
+                    rotation_degrees = float(rotation)
+                    break
+            except (TypeError, ValueError):
+                continue
+
+    # Some files expose rotation in tags instead of side_data_list.
+    if rotation_degrees is None:
+        tags = stream.get("tags", {})
+        if isinstance(tags, dict):
+            rotate_value = tags.get("rotate")
+            try:
+                if rotate_value is not None:
+                    rotation_degrees = float(rotate_value)
+            except (TypeError, ValueError):
+                rotation_degrees = None
+
+    if rotation_degrees is not None:
+        normalized = abs(rotation_degrees) % 360
+        if abs(normalized - 90.0) < 0.1 or abs(normalized - 270.0) < 0.1:
+            width, height = height, width
+
+    return {"width": width, "height": height}
+
+
 def _generate_segment_component(index: int, joined: dict) -> str:
     if joined["layout"] == "half_and_half":
+        aroll_dims = joined.get("aroll_dims") or {"width": 1080, "height": 1920}
+        broll_dims = joined.get("broll_dims") or {"width": 1080, "height": 960}
         return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
 import React from "react";
 import {{ staticFile }} from "remotion";
@@ -888,6 +965,8 @@ export const Segment{index}: React.FC<{{ splitRatio: number; visualTransforms: S
   <HalfAndHalf
         arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
         brollSrc={{staticFile({json.dumps(joined["broll_src"])})}}
+    arollSourceSize={{{{ width: {aroll_dims['width']}, height: {aroll_dims['height']} }}}}
+    brollSourceSize={{{{ width: {broll_dims['width']}, height: {broll_dims['height']} }}}}
     arollTrimStart={{{joined["aroll_trim_start"]}}}
     brollTrimStart={{{joined["broll_trim_start"]}}}
     durationSec={{{joined["duration_sec"]}}}
@@ -899,6 +978,7 @@ export const Segment{index}: React.FC<{{ splitRatio: number; visualTransforms: S
 );
 '''
 
+    aroll_dims = joined.get("aroll_dims") or {"width": 1080, "height": 1920}
     return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
 import React from "react";
 import {{ staticFile }} from "remotion";
@@ -912,6 +992,7 @@ type SegmentTransforms = {{
 export const Segment{index}: React.FC<{{ visualTransforms: SegmentTransforms }}> = ({{ visualTransforms }}) => (
     <ARollOnly
         arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
+        arollSourceSize={{{{ width: {aroll_dims['width']}, height: {aroll_dims['height']} }}}}
         arollTrimStart={{{joined["aroll_trim_start"]}}}
         durationSec={{{joined["duration_sec"]}}}
         arollTransform={{visualTransforms.aroll}}
@@ -1140,6 +1221,7 @@ def generate_remotion_components(project_name: str) -> int:
         )
 
         broll_public_src = ""
+        broll_dims = None
         if layout == "half_and_half":
             broll_public_src = _ensure_preview_segment_clip(
                 project_root=project_root,
@@ -1150,12 +1232,17 @@ def generate_remotion_components(project_name: str) -> int:
                 trim_start=broll_start,
                 duration_sec=duration_sec,
             )
+            broll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / broll_public_src)
+
+        aroll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / aroll_public_src)
 
         joined_segments.append(
             {
                 "layout": layout,
                 "aroll_src": aroll_public_src,
                 "broll_src": broll_public_src,
+                "aroll_dims": aroll_dims,
+                "broll_dims": broll_dims,
                 "aroll_trim_start": 0,
                 "broll_trim_start": 0,
                 "duration_sec": duration_sec,
@@ -1186,12 +1273,16 @@ def generate_remotion_components(project_name: str) -> int:
             trim_start=aroll_start,
             duration_sec=duration_sec,
         )
+        aroll_dims_unassigned = _probe_video_dimensions(
+            project_root / "remotion-src" / "public" / aroll_public_src
+        )
 
         joined_segments.append(
             {
                 "layout": "aroll_only",
                 "aroll_src": aroll_public_src,
                 "broll_src": "",
+                "aroll_dims": aroll_dims_unassigned,
                 "aroll_trim_start": 0,
                 "broll_trim_start": 0,
                 "duration_sec": duration_sec,

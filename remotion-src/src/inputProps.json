@@ -5,14 +5,14 @@
       "splitRatio": 0.5,
       "visualTransforms": {
         "aroll": {
-          "zoom": 0.99,
-          "posX": -57.0,
-          "posY": 459.0
+          "zoom": 1.1,
+          "posX": 0.0,
+          "posY": 223.0
         },
         "broll": {
-          "zoom": 1.21,
-          "posX": -3.0,
-          "posY": 245.0
+          "zoom": 1.02,
+          "posX": 112.0,
+          "posY": -90.0
         }
       }
     },
@@ -21,14 +21,14 @@
       "splitRatio": 0.5,
       "visualTransforms": {
         "aroll": {
-          "zoom": 1.42,
-          "posX": 35.0,
-          "posY": -120.0
+          "zoom": 1.1,
+          "posX": 0.0,
+          "posY": 223.0
         },
         "broll": {
-          "zoom": 1.08,
-          "posX": -24.0,
-          "posY": 60.0
+          "zoom": 1.02,
+          "posX": 112.0,
+          "posY": -90.0
         }
       }
     },
@@ -39,7 +39,7 @@
         "aroll": {
           "zoom": 1.2,
           "posX": 0.0,
-          "posY": 100.0
+          "posY": 31.0
         },
         "broll": {
           "zoom": 1.0,

@@ -12,6 +12,8 @@ export const Segment0: React.FC<{ splitRatio: number; visualTransforms: SegmentT
   <HalfAndHalf
         arollSrc={staticFile("sports_production_aroll_seg000.mp4")}
         brollSrc={staticFile("sports_production_broll_seg000.mp4")}
+    arollSourceSize={{ width: 1920, height: 3414 }}
+    brollSourceSize={{ width: 1920, height: 1080 }}
     arollTrimStart={0}
     brollTrimStart={0}
     durationSec={1.967}
