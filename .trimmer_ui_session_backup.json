@@ -1,7 +1,7 @@
 {
   "project": "sports_production",
   "mode": "broll",
-  "videoFilename": "broll_main.mp4",
+  "videoFilename": "slap.webm",
   "fps": 30,
   "presets": {
     "Half-And-Half Split": [

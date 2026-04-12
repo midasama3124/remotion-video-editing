@@ -35,8 +35,8 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
   splitRatio = 0.5,
   arollTransform = { zoom: 1, posX: 0, posY: 0 },
   brollTransform = { zoom: 1, posX: 0, posY: 0 },
-  arollSourceSize,
-  brollSourceSize,
+  arollSourceSize = { width: 1080, height: 1920 },
+  brollSourceSize = { width: 1920, height: 1080 },
   fps,
 }) => {
   const clamp = (value: number, min: number, max: number) =>
@@ -57,15 +57,20 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
   const bottomTopPx = topHeightPx;
   const bottomHeightPx = compositionHeight - topHeightPx;
 
-  // -- Helper: compute absolute position/size for a video layer --
-  // This replicates the canvas preview exactly:
-  //   1. Scale source video to "cover" the panel (no black bars at zoom=1)
-  //   2. Apply user zoom on top of cover scale
-  //   3. Center in panel, then offset by posX/posY
-  // The panel's overflow:hidden provides the clip - identical to ctx.clip()
-  // in the canvas. objectFit is NOT used so the element itself is never
-  // clipped before posX/posY are applied.
-  const computeVideoLayout = (
+  // Mirrors drawVideoCoverWithTransform exactly:
+  //   coverScale = max(panelW/srcW, panelH/srcH)
+  //   drawW = srcW * coverScale  (no zoom — zoom applied via ctx.scale)
+  //   drawH = srcH * coverScale
+  //   maxOffsetX = max(0, (drawW*zoom - panelW) / 2)
+  //   ctx.translate(panelCX + posX, panelCY + posY)
+  //   ctx.scale(zoom, zoom)
+  //   ctx.drawImage(video, -drawW/2, -drawH/2, drawW, drawH)
+  //
+  // CSS equivalent:
+  //   Inner div sized to drawW × drawH, centered in panel.
+  //   transform: translate(posX, posY) scale(zoom) with transformOrigin: center center
+  //   Video: width/height 100%, objectFit: fill  (div already has correct aspect ratio)
+  const computeLayer = (
     panelW: number,
     panelH: number,
     sourceSize: VideoSize,
@@ -79,48 +84,33 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
       panelW / sourceSize.width,
       panelH / sourceSize.height,
     );
-    const scaledW = sourceSize.width * coverScale * zoom;
-    const scaledH = sourceSize.height * coverScale * zoom;
+    const coveredW = sourceSize.width * coverScale;
+    const coveredH = sourceSize.height * coverScale;
 
-    // Clamp so the video always fully covers the panel (no black bars)
-    const maxOffsetX = Math.max(0, (scaledW - panelW) / 2);
-    const maxOffsetY = Math.max(0, (scaledH - panelH) / 2);
+    const maxOffsetX = Math.max(0, (coveredW * zoom - panelW) / 2);
+    const maxOffsetY = Math.max(0, (coveredH * zoom - panelH) / 2);
     const posX = clamp(rawPosX, -maxOffsetX, maxOffsetX);
     const posY = clamp(rawPosY, -maxOffsetY, maxOffsetY);
 
-    return {
-      width: scaledW,
-      height: scaledH,
-      left: (panelW - scaledW) / 2 + posX,
-      top: (panelH - scaledH) / 2 + posY,
-    };
+    // Position inner div: centered in panel
+    const left = (panelW - coveredW) / 2;
+    const top = (panelH - coveredH) / 2;
+
+    return { coveredW, coveredH, left, top, zoom, posX, posY };
   };
 
-  const fallbackBrollSize: VideoSize = {
-    width: compositionWidth,
-    height: Math.max(1, topHeightPx),
-  };
-  const fallbackArollSize: VideoSize = {
-    width: compositionWidth,
-    height: Math.max(1, bottomHeightPx),
-  };
+  const broll = computeLayer(compositionWidth, topHeightPx, brollSourceSize, brollTransform);
+  const aroll = computeLayer(compositionWidth, bottomHeightPx, arollSourceSize, arollTransform);
 
-  const brollLayout = computeVideoLayout(
-    compositionWidth,
-    topHeightPx,
-    brollSourceSize ?? fallbackBrollSize,
-    brollTransform,
-  );
-  const arollLayout = computeVideoLayout(
-    compositionWidth,
-    bottomHeightPx,
-    arollSourceSize ?? fallbackArollSize,
-    arollTransform,
-  );
+  const videoStyle: React.CSSProperties = {
+    width: "100%",
+    height: "100%",
+    objectFit: "fill",
+  };
 
   return (
     <AbsoluteFill style={{ width: 1080, height: 1920, backgroundColor: "#000" }}>
-      {/* -- B-Roll (top panel) -- */}
+      {/* B-Roll (top panel) */}
       <div
         style={{
           position: "absolute",
@@ -132,24 +122,28 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
           zIndex: 1,
         }}
       >
-        <Html5Video
-          src={brollSrc}
-          startFrom={startBroll}
-          endAt={endBroll}
-          onError={(error) => {
-            console.error("B-roll playback error", { src: brollSrc, error });
-          }}
+        <div
           style={{
             position: "absolute",
-            width: `${brollLayout.width}px`,
-            height: `${brollLayout.height}px`,
-            left: `${brollLayout.left}px`,
-            top: `${brollLayout.top}px`,
+            left: `${broll.left}px`,
+            top: `${broll.top}px`,
+            width: `${broll.coveredW}px`,
+            height: `${broll.coveredH}px`,
+            transform: `translate(${broll.posX}px, ${broll.posY}px) scale(${broll.zoom})`,
+            transformOrigin: "center center",
           }}
-        />
+        >
+          <Html5Video
+            src={brollSrc}
+            startFrom={startBroll}
+            endAt={endBroll}
+            delayRenderTimeoutInMilliseconds={180000}
+            style={videoStyle}
+          />
+        </div>
       </div>
 
-      {/* -- A-Roll (bottom panel) -- */}
+      {/* A-Roll (bottom panel) */}
       <div
         style={{
           position: "absolute",
@@ -161,21 +155,25 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
           zIndex: 1,
         }}
       >
-        <Html5Video
-          src={arollSrc}
-          startFrom={startAroll}
-          endAt={endAroll}
-          onError={(error) => {
-            console.error("A-roll playback error", { src: arollSrc, error });
-          }}
+        <div
           style={{
             position: "absolute",
-            width: `${arollLayout.width}px`,
-            height: `${arollLayout.height}px`,
-            left: `${arollLayout.left}px`,
-            top: `${arollLayout.top}px`,
+            left: `${aroll.left}px`,
+            top: `${aroll.top}px`,
+            width: `${aroll.coveredW}px`,
+            height: `${aroll.coveredH}px`,
+            transform: `translate(${aroll.posX}px, ${aroll.posY}px) scale(${aroll.zoom})`,
+            transformOrigin: "center center",
           }}
-        />
+        >
+          <Html5Video
+            src={arollSrc}
+            startFrom={startAroll}
+            endAt={endAroll}
+            delayRenderTimeoutInMilliseconds={180000}
+            style={videoStyle}
+          />
+        </div>
       </div>
     </AbsoluteFill>
   );

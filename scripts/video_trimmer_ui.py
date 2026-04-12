@@ -818,18 +818,12 @@ def _ensure_preview_segment_clip(
         "ffmpeg",
         "-y",
         "-nostdin",
-        "-v",
-        "error",
-        "-ss",
-        f"{trim_start:.6f}",
-        "-i",
-        str(source_path),
-        "-t",
-        f"{duration_sec:.6f}",
-        "-vf",
-        "scale='min(1920,iw)':-2:flags=lanczos,fps=30",
-        "-c:v",
-        "libx264",
+        "-v", "error",
+        "-ss", f"{trim_start:.6f}",
+        "-i", str(source_path),
+        "-t", f"{duration_sec:.6f}",
+        "-vf", "scale='if(gte(iw,ih),min(1920,iw),min(1080,iw))':'if(gte(iw,ih),-2,min(1920,ih))':flags=lanczos,fps=30",
+        "-c:v", "libx264",
         "-preset",
         "veryfast",
         "-crf",
@@ -873,76 +867,65 @@ def _ensure_preview_segment_clip(
 
 
 def _probe_video_dimensions(video_path: Path) -> dict[str, int]:
+    import json as _json
+
     cmd = [
         "ffprobe",
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
+        "-v", "error",
+        "-select_streams", "v:0",
         "-show_entries",
-        "stream=width,height,side_data_list:stream_tags=rotate",
-        "-of",
-        "json",
+        "stream=width,height,sample_aspect_ratio,side_data_list",
+        "-of", "json",
         str(video_path),
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired as exc:
-        raise ValueError(f"Failed to probe video dimensions for {video_path.name}: ffprobe timed out") from exc
+        raise ValueError(
+            f"Failed to probe video dimensions for {video_path.name}: ffprobe timed out"
+        ) from exc
 
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "ffprobe failed").strip()
-        raise ValueError(f"Failed to probe video dimensions for {video_path.name}: {err}")
+        raise ValueError(
+            f"Failed to probe video dimensions for {video_path.name}: {err}"
+        )
 
-    try:
-        payload = json.loads(proc.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Failed to parse ffprobe JSON for {video_path.name}") from exc
+    data = _json.loads(proc.stdout or "{}")
+    streams = data.get("streams", [{}])
+    st = streams[0] if streams else {}
 
-    streams = payload.get("streams", []) if isinstance(payload, dict) else []
-    if not isinstance(streams, list) or not streams:
-        raise ValueError(f"No video stream found while probing dimensions for {video_path.name}")
-
-    stream = streams[0] if isinstance(streams[0], dict) else {}
-
-    try:
-        width = int(stream.get("width"))
-        height = int(stream.get("height"))
-    except ValueError as exc:
-        raise ValueError(f"Invalid video dimensions for {video_path.name}") from exc
-
+    width = int(st.get("width", 0))
+    height = int(st.get("height", 0))
     if width <= 0 or height <= 0:
-        raise ValueError(f"Invalid non-positive dimensions for {video_path.name}: {width}x{height}")
+        raise ValueError(
+            f"Invalid dimensions for {video_path.name}: {width}x{height}"
+        )
 
-    rotation_degrees: float | None = None
-    side_data_list = stream.get("side_data_list", [])
-    if isinstance(side_data_list, list):
-        for side_data in side_data_list:
-            if not isinstance(side_data, dict):
-                continue
-            rotation = side_data.get("rotation")
+    # Correct for non-square pixel aspect ratio (SAR).
+    sar = st.get("sample_aspect_ratio", "1:1") or "1:1"
+    if sar not in ("1:1", "0:1", ""):
+        try:
+            sar_x, sar_y = (int(p) for p in sar.split(":"))
+            if sar_x > 0 and sar_y > 0 and sar_x != sar_y:
+                width = round(width * sar_x / sar_y)
+        except (ValueError, ZeroDivisionError):
+            pass
+
+    # Correct for rotation metadata. Browsers apply the rotation tag from the
+    # container and swap videoWidth/videoHeight for 90° and 270° rotations.
+    # ffprobe reports raw stream dimensions, so we must swap here to match what
+    # the browser (and the canvas preview) sees via videoEl.videoWidth/videoHeight.
+    rotation = 0
+    for side_data in st.get("side_data_list", []):
+        if side_data.get("side_data_type") == "Display Matrix":
             try:
-                if rotation is not None:
-                    rotation_degrees = float(rotation)
-                    break
-            except (TypeError, ValueError):
-                continue
-
-    # Some files expose rotation in tags instead of side_data_list.
-    if rotation_degrees is None:
-        tags = stream.get("tags", {})
-        if isinstance(tags, dict):
-            rotate_value = tags.get("rotate")
-            try:
-                if rotate_value is not None:
-                    rotation_degrees = float(rotate_value)
-            except (TypeError, ValueError):
-                rotation_degrees = None
-
-    if rotation_degrees is not None:
-        normalized = abs(rotation_degrees) % 360
-        if abs(normalized - 90.0) < 0.1 or abs(normalized - 270.0) < 0.1:
-            width, height = height, width
+                rotation = int(side_data.get("rotation", 0))
+            except (ValueError, TypeError):
+                pass
+            break
+    if rotation in (90, -90, 270, -270):
+        width, height = height, width
 
     return {"width": width, "height": height}
 
@@ -950,7 +933,7 @@ def _probe_video_dimensions(video_path: Path) -> dict[str, int]:
 def _generate_segment_component(index: int, joined: dict) -> str:
     if joined["layout"] == "half_and_half":
         aroll_dims = joined.get("aroll_dims") or {"width": 1080, "height": 1920}
-        broll_dims = joined.get("broll_dims") or {"width": 1080, "height": 960}
+        broll_dims = joined.get("broll_dims") or {"width": 1920, "height": 1080}
         return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
 import React from "react";
 import {{ staticFile }} from "remotion";
@@ -1906,6 +1889,11 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
         # Sanitise – prevent path traversal
         filename = os.path.basename(filename)
         video_path = self._project_dir() / "video" / filename
+        if not video_path.is_file():
+            # Generated segment preview clips live in remotion-src/public.
+            remotion_public_path = WORKSPACE / "remotion-src" / "public" / filename
+            if remotion_public_path.is_file():
+                video_path = remotion_public_path
         if not video_path.is_file():
             self.send_error(404, f"Not found: {filename}")
             return

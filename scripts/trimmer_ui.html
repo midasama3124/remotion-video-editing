@@ -1298,6 +1298,7 @@ let previewModalDragOffsetX = 0;
 let previewModalDragOffsetY = 0;
 let previewBrollVideoEl = null;
 let previewArollVideoEl = null;
+let previewUsingSegmentClip = { broll: false, aroll: false };
 let brollMainSegments = [];
 let assignedArollIndices = new Set();
 
@@ -3178,12 +3179,74 @@ function ensurePreviewVideosReady() {
     }
 }
 
-function setPreviewVideoSources() {
+function sanitizeProjectNameForClip(projectName) {
+    const raw = String(projectName || 'project').trim();
+    const safe = raw.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return safe || 'project';
+}
+
+function getPreviewSegmentIndex(seg) {
+    if (!seg) return -1;
+    const idx = segments.indexOf(seg);
+    return Number.isInteger(idx) && idx >= 0 ? idx : -1;
+}
+
+function buildPreviewLayerSources(seg, layerKey) {
+    const defaultBrollSrc = `/video/${encodeURIComponent(config.videoFilename || 'broll_main.mp4')}`;
+    const defaultArollSrc = '/video/aroll.mp4';
+    const fallbackSrc = layerKey === 'broll' ? defaultBrollSrc : defaultArollSrc;
+
+    const segIdx = getPreviewSegmentIndex(seg);
+    if (segIdx < 0) {
+        return { primarySrc: fallbackSrc, fallbackSrc, usingSegmentClip: false };
+    }
+
+    const safeProject = sanitizeProjectNameForClip(config.project);
+    const segmentClipName = `${safeProject}_${layerKey}_seg${String(segIdx).padStart(3, '0')}.mp4`;
+    const segmentSrc = `/video/${encodeURIComponent(segmentClipName)}`;
+
+    return {
+        primarySrc: segmentSrc,
+        fallbackSrc,
+        usingSegmentClip: true,
+    };
+}
+
+function setPreviewLayerSource(videoEl, layerKey, sourceInfo) {
+    if (!videoEl || !sourceInfo) return;
+
+    videoEl.dataset.previewLayer = layerKey;
+    videoEl.dataset.previewFallbackSrc = sourceInfo.fallbackSrc;
+    videoEl.dataset.previewPrimarySrc = sourceInfo.primarySrc;
+    videoEl.dataset.previewTriedFallback = '0';
+
+    videoEl.onerror = () => {
+        const fallbackSrc = videoEl.dataset.previewFallbackSrc || '';
+        if (!fallbackSrc) return;
+        if (videoEl.dataset.previewTriedFallback === '1') return;
+        if (videoEl.src === fallbackSrc) return;
+
+        videoEl.dataset.previewTriedFallback = '1';
+        previewUsingSegmentClip[layerKey] = false;
+        videoEl.src = fallbackSrc;
+        if (previewCurrentSegment) {
+            syncPreviewVideoTimes(previewCurrentSegment);
+        }
+    };
+
+    if (videoEl.src !== sourceInfo.primarySrc) {
+        videoEl.src = sourceInfo.primarySrc;
+    }
+    previewUsingSegmentClip[layerKey] = sourceInfo.usingSegmentClip;
+}
+
+function setPreviewVideoSources(seg = null) {
     ensurePreviewVideosReady();
-    const brollSrc = `/video/${encodeURIComponent(config.videoFilename || 'broll_main.mp4')}`;
-    const arollSrc = '/video/aroll.mp4';
-    if (previewBrollVideoEl.src !== brollSrc) previewBrollVideoEl.src = brollSrc;
-    if (previewArollVideoEl.src !== arollSrc) previewArollVideoEl.src = arollSrc;
+
+    const brollSources = buildPreviewLayerSources(seg, 'broll');
+    const arollSources = buildPreviewLayerSources(seg, 'aroll');
+    setPreviewLayerSource(previewBrollVideoEl, 'broll', brollSources);
+    setPreviewLayerSource(previewArollVideoEl, 'aroll', arollSources);
 }
 
 function seekVideoToTime(videoEl, timeSec) {
@@ -3209,15 +3272,22 @@ function syncPreviewVideoTimes(seg) {
     if (!seg) return;
     ensurePreviewVideosReady();
     if (config.mode === 'aroll') {
-        const arollStart = Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0;
+        const arollStart = previewUsingSegmentClip.aroll
+            ? 0
+            : (Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0);
         seekVideoToTime(previewArollVideoEl, arollStart);
         seekVideoToTime(previewBrollVideoEl, 0);
         return;
     }
-    const brollStart = Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0;
+
+    const brollStart = previewUsingSegmentClip.broll
+        ? 0
+        : (Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0);
     const targetRef = getBrollTargetFromSeg(seg);
     const target = targetRef ? findArollTargetByKey(targetRef.key) : null;
-    const arollStart = target && Number.isFinite(Number(target.start)) ? Number(target.start) : 0;
+    const arollStart = previewUsingSegmentClip.aroll
+        ? 0
+        : (target && Number.isFinite(Number(target.start)) ? Number(target.start) : 0);
     seekVideoToTime(previewBrollVideoEl, brollStart);
     seekVideoToTime(previewArollVideoEl, arollStart);
 }
@@ -3400,9 +3470,9 @@ async function loadSafeZoneImage() {
 }
 
 function openPreviewModal(seg) {
-    setPreviewVideoSources();
-    syncPreviewVideoTimes(seg);
     previewCurrentSegment = seg;
+    setPreviewVideoSources(seg);
+    syncPreviewVideoTimes(seg);
     previewModalOpen = true;
     updatePreviewTransformControls();
     
@@ -4896,6 +4966,76 @@ window.addEventListener('beforeunload', () => {
     updateTime();
     requestAnimationFrame(loop);
 })();
+
+/* ── Debug bridge for automated validation ─────────────────── */
+function getPreviewBaseTimes(seg) {
+    if (!seg) return { brollBase: 0, arollBase: 0 };
+    if (config.mode === 'aroll') {
+        const arollBase = previewUsingSegmentClip.aroll
+            ? 0
+            : (Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0);
+        return { brollBase: 0, arollBase };
+    }
+
+    const brollBase = previewUsingSegmentClip.broll
+        ? 0
+        : (Number.isFinite(Number(seg.start)) ? Number(seg.start) : 0);
+    const targetRef = getBrollTargetFromSeg(seg);
+    const target = targetRef ? findArollTargetByKey(targetRef.key) : null;
+    const arollBase = previewUsingSegmentClip.aroll
+        ? 0
+        : (target && Number.isFinite(Number(target.start)) ? Number(target.start) : 0);
+    return { brollBase, arollBase };
+}
+
+function setPreviewRelativeTime(timeSec) {
+    if (!previewCurrentSegment) return false;
+    ensurePreviewVideosReady();
+
+    const rel = Math.max(0, Number(timeSec) || 0);
+    const bases = getPreviewBaseTimes(previewCurrentSegment);
+
+    seekVideoToTime(previewBrollVideoEl, bases.brollBase + rel);
+    seekVideoToTime(previewArollVideoEl, bases.arollBase + rel);
+    renderPreviewFrame();
+    return true;
+}
+
+function setPreviewRelativeFrame(frameIdx) {
+    const safeFrame = Math.max(0, Number(frameIdx) || 0);
+    const sec = safeFrame / Number(config.fps || 30);
+    return setPreviewRelativeTime(sec);
+}
+
+function capturePreviewCanvasDataUrl() {
+    const canvas = document.getElementById('transform-preview-canvas');
+    if (!canvas) return null;
+    renderPreviewFrame();
+    return canvas.toDataURL('image/png');
+}
+
+function openPreviewForSegmentIndex(segmentIndex) {
+    const idx = Number(segmentIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= segments.length) return false;
+    const seg = segments[idx];
+    if (!seg) return false;
+    openPreviewModal(seg);
+    return true;
+}
+
+window.__trimmerDebug = {
+    openPreviewForSegmentIndex,
+    setPreviewRelativeTime,
+    setPreviewRelativeFrame,
+    capturePreviewCanvasDataUrl,
+    getPreviewState: () => ({
+        previewModalOpen,
+        hasPreviewSegment: Boolean(previewCurrentSegment),
+        usingSegmentClip: { ...previewUsingSegmentClip },
+        brollSrc: previewBrollVideoEl ? previewBrollVideoEl.src : null,
+        arollSrc: previewArollVideoEl ? previewArollVideoEl.src : null,
+    }),
+};
 
 /* ── Init ──────────────────────────────────────────────────── */
 async function init() {

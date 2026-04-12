@@ -64,9 +64,7 @@ export const ARollOnly: React.FC<ARollOnlyProps> = ({
           src={arollSrc}
           startFrom={startAroll}
           endAt={endAroll}
-          onError={(error) => {
-            console.error("A-roll playback error", { src: arollSrc, error });
-          }}
+          delayRenderTimeoutInMilliseconds={180000}
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
       </div>

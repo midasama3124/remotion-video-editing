@@ -1,0 +1,30 @@
+{
+  "project": "sports_production",
+  "type": "broll",
+  "video": "slap.webm",
+  "segments": [
+    {
+      "name": "Segment 1",
+      "start": null,
+      "end": null,
+      "aroll_segment_index": 0,
+      "aroll_segment_name": "Segment 1",
+      "max_duration": 1.967,
+      "broll_format": "B-Roll Only",
+      "splitRatio": 0.5,
+      "visual_transforms": {
+        "aroll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        },
+        "broll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        }
+      },
+      "aroll_partition_index": 0
+    }
+  ]
+}
