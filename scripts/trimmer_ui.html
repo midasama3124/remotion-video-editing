@@ -1301,6 +1301,7 @@ let previewArollVideoEl = null;
 let previewUsingSegmentClip = { broll: false, aroll: false };
 let brollMainSegments = [];
 let assignedArollIndices = new Set();
+let crossVideoUsedArollIndices = new Set();
 
 const selectedSegmentIndices = new Set();
 const STRICT_UNIQUE_AROLL_BINDING = true;
@@ -1312,13 +1313,15 @@ const transformSaveState = new WeakMap();
 const transformUiRefs = new WeakMap();
 const transformPanelSelection = new WeakMap();
 const BROLL_FORMAT_OPTIONS = [
-    'A-Roll Only',    
     'B-Roll Only',
     'B-Roll Main, A-Roll Bubble',
     'Half-And-Half Split',
 ];
+// 'A-Roll Only' is an internal-only format applied automatically when no A-Roll is assigned.
+// It is not shown in the dropdown but must remain valid so existing data is preserved.
+const BROLL_FORMAT_VALID = new Set([...BROLL_FORMAT_OPTIONS, 'A-Roll Only']);
 const DEFAULT_BROLL_FORMAT = 'Half-And-Half Split';
-const TRANSFORM_SUPPORTED_FORMATS = new Set(['Half-And-Half Split']);
+const TRANSFORM_SUPPORTED_FORMATS = new Set(['Half-And-Half Split', 'B-Roll Only']);
 const TRANSFORM_LAYER_OPTIONS = [
     { value: 'aroll', label: 'A-Roll' },
     { value: 'broll', label: 'B-Roll' },
@@ -1510,6 +1513,9 @@ function getAvailableTransformLayersForSegment(seg) {
     if (config.mode === 'aroll') {
         return [{ value: 'aroll', label: 'A-Roll' }];
     }
+    if (normalizeBrollFormat(seg?.broll_format) === 'B-Roll Only') {
+        return [{ value: 'broll', label: 'B-Roll' }];
+    }
     return TRANSFORM_LAYER_OPTIONS;
 }
 
@@ -1525,7 +1531,7 @@ function rebuildAssignedArollIndices() {
 }
 
 function normalizeBrollFormat(value) {
-    return BROLL_FORMAT_OPTIONS.includes(value) ? value : DEFAULT_BROLL_FORMAT;
+    return BROLL_FORMAT_VALID.has(value) ? value : DEFAULT_BROLL_FORMAT;
 }
 
 function arollTargetKey(segmentIndex, partitionIndex) {
@@ -1607,7 +1613,19 @@ function ensureBrollAssignments() {
     if (config.mode !== 'broll') return;
 
     const targets = getArollTargets();
-    if (!targets.length) {
+
+    // Pre-populate `used` with A-roll keys claimed by other B-roll videos so
+    // the current video's segments don't pick the same A-roll targets.
+    const used = new Set();
+    if (STRICT_UNIQUE_AROLL_BINDING) {
+        targets.forEach((t) => {
+            if (crossVideoUsedArollIndices.has(t.segmentIndex)) {
+                used.add(t.key);
+            }
+        });
+    }
+
+    if (!targets.length || targets.every((t) => used.has(t.key))) {
         segments.forEach(seg => {
             seg.aroll_segment_index = null;
             seg.aroll_partition_index = null;
@@ -1616,8 +1634,6 @@ function ensureBrollAssignments() {
         });
         return;
     }
-
-    const used = new Set();
 
     segments.forEach((seg, i) => {
         let target;
@@ -2128,6 +2144,8 @@ async function loadSegments() {
                 seg.aroll_partition_index = null;
                 seg.aroll_segment_name = null;
                 seg.max_duration = null;
+                // Enforce: segments without an A-Roll assignment are always A-Roll Only.
+                seg.broll_format = 'A-Roll Only';
             }
         });
     } else {
@@ -2143,15 +2161,30 @@ async function loadArollSegments() {
     arollSegments = d.segments || [];
 }
 
+async function loadCrossVideoUsedArollIndices() {
+    if (config.mode !== 'broll') {
+        crossVideoUsedArollIndices = new Set();
+        return;
+    }
+    try {
+        const d = await (await fetch('/api/aroll-used-cross-video')).json();
+        crossVideoUsedArollIndices = new Set(d.usedIndices || []);
+    } catch (_err) {
+        crossVideoUsedArollIndices = new Set();
+    }
+}
+
 async function loadBrollMainSegmentsForAroll() {
     if (config.mode !== 'aroll') return;
     try {
-        const d = await (await fetch('/api/broll-main-segments')).json();
-        brollMainSegments = Array.isArray(d.segments) ? d.segments : [];
+        // Load assigned A-Roll indices from ALL B-Roll segment files.
+        // In A-Roll mode the current video is aroll.mp4, so /api/aroll-used-cross-video
+        // iterates every B-Roll file (broll_main, slap, etc.) and returns all used indices.
+        const d = await (await fetch('/api/aroll-used-cross-video')).json();
+        assignedArollIndices = new Set(d.usedIndices || []);
     } catch (_err) {
-        brollMainSegments = [];
+        assignedArollIndices = new Set();
     }
-    rebuildAssignedArollIndices();
 }
 
 async function reloadForSession() {
@@ -2167,11 +2200,13 @@ async function reloadForSession() {
     await loadSegments();
     if (config.mode === 'broll') {
         await loadArollSegments();
+        await loadCrossVideoUsedArollIndices();
         ensureBrollAssignments();
         brollMainSegments = [];
         assignedArollIndices = new Set();
     } else {
         arollSegments = [];
+        crossVideoUsedArollIndices = new Set();
         await loadBrollMainSegmentsForAroll();
         ensureArollSegmentIndices();
     }
@@ -2893,6 +2928,11 @@ function getPreviewLayerViewport(seg, layerKey) {
         return { width: targetWidth, height: Math.max(1, bottomHeight) };
     }
 
+    // B-Roll Only occupies the full canvas for the broll layer.
+    if (format === 'B-Roll Only' && layerKey === 'broll') {
+        return { width: targetWidth, height: targetHeight };
+    }
+
     return { width: targetWidth, height: targetHeight };
 }
 
@@ -3196,17 +3236,56 @@ function buildPreviewLayerSources(seg, layerKey) {
     const defaultArollSrc = '/video/aroll.mp4';
     const fallbackSrc = layerKey === 'broll' ? defaultBrollSrc : defaultArollSrc;
 
+    const safeProject = sanitizeProjectNameForClip(config.project);
+
+    if (layerKey === 'broll') {
+        // For B-Roll Only segments the segment clips are muted (no broll audio), so
+        // use the full broll video + seek rather than the segment clip.
+        if (seg && normalizeBrollFormat(seg.broll_format) === 'B-Roll Only') {
+            return { primarySrc: defaultBrollSrc, fallbackSrc: defaultBrollSrc, usingSegmentClip: false };
+        }
+
+        // Broll clips are named with the source video stem (e.g. "broll_main" or "slap")
+        // so clips from different broll files never collide.  Strip the extension from
+        // the current videoFilename to get the label.
+        const segIdx = getPreviewSegmentIndex(seg);
+        if (segIdx < 0) {
+            return { primarySrc: fallbackSrc, fallbackSrc, usingSegmentClip: false };
+        }
+        const videoStem = (config.videoFilename || 'broll_main.mp4').replace(/\.[^.]+$/, '');
+        const safeVideoLabel = videoStem.replace(/[^a-zA-Z0-9_-]/g, '_') || 'broll';
+        const clipName = `${safeProject}_${safeVideoLabel}_seg${String(segIdx).padStart(3, '0')}.mp4`;
+        return {
+            primarySrc: `/video/${encodeURIComponent(clipName)}`,
+            fallbackSrc,
+            usingSegmentClip: true,
+        };
+    }
+
+    // Aroll layer: clips are keyed by aroll_segment_index so the correct clip is
+    // loaded regardless of which broll file this segment belongs to.
+    if (config.mode === 'broll' && seg) {
+        const arollIdx = seg.aroll_segment_index;
+        if (Number.isInteger(arollIdx) && arollIdx >= 0) {
+            const clipName = `${safeProject}_aroll_seg${String(arollIdx).padStart(3, '0')}.mp4`;
+            return {
+                primarySrc: `/video/${encodeURIComponent(clipName)}`,
+                fallbackSrc,
+                usingSegmentClip: true,
+            };
+        }
+        // No aroll association — fall back to full video.
+        return { primarySrc: fallbackSrc, fallbackSrc, usingSegmentClip: false };
+    }
+
+    // A-Roll mode: use local segment index.
     const segIdx = getPreviewSegmentIndex(seg);
     if (segIdx < 0) {
         return { primarySrc: fallbackSrc, fallbackSrc, usingSegmentClip: false };
     }
-
-    const safeProject = sanitizeProjectNameForClip(config.project);
-    const segmentClipName = `${safeProject}_${layerKey}_seg${String(segIdx).padStart(3, '0')}.mp4`;
-    const segmentSrc = `/video/${encodeURIComponent(segmentClipName)}`;
-
+    const clipName = `${safeProject}_aroll_seg${String(segIdx).padStart(3, '0')}.mp4`;
     return {
-        primarySrc: segmentSrc,
+        primarySrc: `/video/${encodeURIComponent(clipName)}`,
         fallbackSrc,
         usingSegmentClip: true,
     };
@@ -3299,8 +3378,10 @@ function drawVideoCoverWithTransform(ctx, videoEl, clipX, clipY, clipW, clipH, l
     const coverScale = Math.max(clipW / videoEl.videoWidth, clipH / videoEl.videoHeight);
     const drawW = videoEl.videoWidth * coverScale;
     const drawH = videoEl.videoHeight * coverScale;
-    const maxOffsetX = Math.max(0, ((drawW * zoom) - clipW) / 2);
-    const maxOffsetY = Math.max(0, ((drawH * zoom) - clipH) / 2);
+    // Use Math.abs so that zoom < 1 (underscaled) also allows panning within black bars,
+    // not just zoom > 1 (overscaled panning into overflow).
+    const maxOffsetX = Math.abs(((drawW * zoom) - clipW) / 2);
+    const maxOffsetY = Math.abs(((drawH * zoom) - clipH) / 2);
     const rawPosX = Number(layerTransform?.posX) || 0;
     const rawPosY = Number(layerTransform?.posY) || 0;
     const posX = clamp(rawPosX, -maxOffsetX, maxOffsetX);
@@ -3794,9 +3875,13 @@ function formatPresetDate(isoText) {
 function getToolbarReferenceFormat() {
     const activeSeg = segments[activeIdx];
     if (activeSeg && config.mode === 'broll') {
-        return normalizeBrollFormat(activeSeg.broll_format);
+        const fmt = normalizeBrollFormat(activeSeg.broll_format);
+        // 'A-Roll Only' is not shown in the toolbar; fall through to find a non-orphan segment.
+        if (fmt !== 'A-Roll Only') return fmt;
     }
-    const firstBroll = segments.find((seg) => seg && seg.broll_format != null);
+    const firstBroll = segments.find(
+        (seg) => seg && seg.broll_format != null && seg.broll_format !== 'A-Roll Only'
+    );
     if (firstBroll) {
         return normalizeBrollFormat(firstBroll.broll_format);
     }
@@ -4304,7 +4389,7 @@ function renderSegList() {
             transformBtn.disabled = !supportsTransforms;
             transformBtn.title = supportsTransforms
                 ? 'Open transform preview'
-                : 'Transforms are currently supported only for Half-And-Half Split';
+                : 'Transforms are currently supported for Half-And-Half Split and B-Roll Only';
 
             const editedDot = document.createElement('span');
             editedDot.className = 'transform-edited-dot';
@@ -4460,7 +4545,7 @@ function renderSegList() {
         
         item.appendChild(acts);
 
-        /* ── B-Roll: A-Roll segment selector ───────────── */
+        /* ── B-Roll: A-Roll segment selector + format selector ─────── */
         if (config.mode === 'broll' && arollSegments.length > 0) {
             const arow = document.createElement('div');
             arow.className = 'aroll-row';
@@ -4477,9 +4562,22 @@ function renderSegList() {
                     const t = getBrollTargetFromSeg(other);
                     if (t) usedByOthers.add(t.key);
                 });
+                // Also mark any A-roll index used by segments in other B-roll videos.
+                allTargets.forEach((t) => {
+                    if (crossVideoUsedArollIndices.has(t.segmentIndex)) {
+                        usedByOthers.add(t.key);
+                    }
+                });
             }
 
             const currentTarget = getBrollTargetFromSeg(seg);
+
+            // Deselect option: choosing this reverts the segment to A-Roll Only format.
+            const noneOpt = document.createElement('option');
+            noneOpt.value = '';
+            noneOpt.textContent = '-- None --';
+            if (!currentTarget) noneOpt.selected = true;
+            sel.appendChild(noneOpt);
 
             allTargets.forEach((t) => {
                 const opt = document.createElement('option');
@@ -4493,6 +4591,13 @@ function renderSegList() {
                 sel.appendChild(opt);
             });
             sel.addEventListener('change', () => {
+                if (sel.value === '') {
+                    // Deselect: revert this segment to A-Roll Only format.
+                    seg.broll_format = 'A-Roll Only';
+                    renderSegList(); scheduleSave();
+                    return;
+                }
+
                 let nextTarget = findArollTargetByKey(sel.value) || defaultArollTargetForBrollPosition(i);
 
                 if (STRICT_UNIQUE_AROLL_BINDING) {
@@ -4502,12 +4607,22 @@ function renderSegList() {
                         const t = getBrollTargetFromSeg(other);
                         if (t) usedByOthersNow.add(t.key);
                     });
+                    allTargets.forEach((t) => {
+                        if (crossVideoUsedArollIndices.has(t.segmentIndex)) {
+                            usedByOthersNow.add(t.key);
+                        }
+                    });
                     nextTarget = chooseUniqueArollTarget(nextTarget ? nextTarget.key : null, usedByOthersNow, i);
                 }
 
                 seg.aroll_segment_index = nextTarget ? nextTarget.segmentIndex : null;
                 seg.aroll_partition_index = nextTarget ? nextTarget.partitionIndex : null;
                 seg.aroll_segment_name = nextTarget ? (nextTarget.name || null) : null;
+
+                // When an A-Roll is assigned, promote from 'A-Roll Only' to the default format.
+                if (nextTarget && seg.broll_format === 'A-Roll Only') {
+                    seg.broll_format = DEFAULT_BROLL_FORMAT;
+                }
 
                 // Keep end synced to selected A-Roll duration when start exists.
                 const maxDur = getBrollMaxDuration(seg);
@@ -4521,25 +4636,29 @@ function renderSegList() {
 
             arow.append(lbl, sel);
 
-            const fmtLbl = document.createElement('span');
-            fmtLbl.textContent = 'Format:';
+            // Format selector is only shown when an A-Roll is assigned.
+            // When no A-Roll is assigned the format is implicitly 'A-Roll Only'.
+            if (seg.aroll_segment_index != null) {
+                const fmtLbl = document.createElement('span');
+                fmtLbl.textContent = 'Format:';
 
-            const fmtSel = document.createElement('select');
-            BROLL_FORMAT_OPTIONS.forEach(fmtOpt => {
-                const opt = document.createElement('option');
-                opt.value = fmtOpt;
-                opt.textContent = fmtOpt;
-                if (normalizeBrollFormat(seg.broll_format) === fmtOpt) {
-                    opt.selected = true;
-                }
-                fmtSel.appendChild(opt);
-            });
-            fmtSel.addEventListener('change', () => {
-                seg.broll_format = normalizeBrollFormat(fmtSel.value);
-                renderSegList();
-                scheduleSave();
-            });
-            arow.append(fmtLbl, fmtSel);
+                const fmtSel = document.createElement('select');
+                BROLL_FORMAT_OPTIONS.forEach(fmtOpt => {
+                    const opt = document.createElement('option');
+                    opt.value = fmtOpt;
+                    opt.textContent = fmtOpt;
+                    if (normalizeBrollFormat(seg.broll_format) === fmtOpt) {
+                        opt.selected = true;
+                    }
+                    fmtSel.appendChild(opt);
+                });
+                fmtSel.addEventListener('change', () => {
+                    seg.broll_format = normalizeBrollFormat(fmtSel.value);
+                    renderSegList();
+                    scheduleSave();
+                });
+                arow.append(fmtLbl, fmtSel);
+            }
 
             if (seg.max_duration != null) {
                 const md = document.createElement('span');
@@ -4599,6 +4718,12 @@ function validateBroll(i) {
             if (oi === i) return;
             const t = getBrollTargetFromSeg(other);
             if (t) usedByOthers.add(t.key);
+        });
+        // Incorporate A-roll indices used in other B-roll videos.
+        getArollTargets().forEach((t) => {
+            if (crossVideoUsedArollIndices.has(t.segmentIndex)) {
+                usedByOthers.add(t.key);
+            }
         });
         const current = getBrollTargetFromSeg(seg);
         const chosen = chooseUniqueArollTarget(current ? current.key : null, usedByOthers, i);

@@ -40,6 +40,7 @@ DEFAULT_VISUAL_TRANSFORMS = {
 
 FORMAT_MAP = {
     "Half-And-Half Split": "half_and_half",
+    "B-Roll Only": "broll_only",
 }
 FALLBACK_LAYOUT = "aroll_only"
 
@@ -163,14 +164,21 @@ def normalize_broll_json(data: dict) -> dict:
     for seg in segments:
         if not isinstance(seg, dict):
             continue
+        aroll_idx = seg.get("aroll_segment_index")
+        # A-Roll Only is the implicit format for segments without an A-Roll assignment.
+        # Any other format requires an A-Roll, so fall back to A-Roll Only when none is set.
+        if aroll_idx is None:
+            broll_format = "A-Roll Only"
+        else:
+            broll_format = seg.get("broll_format", "Half-And-Half Split")
         normalized_seg = {
             "name": seg.get("name", "Unnamed"),
             "start": seg.get("start"),
             "end": seg.get("end"),
-            "aroll_segment_index": seg.get("aroll_segment_index"),
+            "aroll_segment_index": aroll_idx,
             "aroll_segment_name": seg.get("aroll_segment_name"),
             "max_duration": seg.get("max_duration"),
-            "broll_format": seg.get("broll_format", "Half-And-Half Split"),
+            "broll_format": broll_format,
             "splitRatio": normalize_split_ratio(seg.get("splitRatio"), 0.5),
             "visual_transforms": normalize_visual_transforms(seg.get("visual_transforms")),
         }
@@ -799,13 +807,19 @@ def _ensure_preview_segment_clip(
 
     Using short, downscaled proxies keeps Remotion Studio responsive even when
     source footage is very large or high-framerate.
+
+    Clip filename uses the source video stem so clips from different B-Roll files
+    (e.g. broll_main.mp4 vs slap.webm) never collide with each other or with
+    A-Roll clips.
     """
     public_dir = project_root / "remotion-src" / "public"
     public_dir.mkdir(parents=True, exist_ok=True)
 
     safe_project = re.sub(r"[^a-zA-Z0-9_-]", "_", project_name.strip() or "project")
-    safe_kind = re.sub(r"[^a-zA-Z0-9_-]", "_", kind.strip() or "clip")
-    filename = f"{safe_project}_{safe_kind}_seg{segment_index:03d}.mp4"
+    # Derive clip label from the source video filename stem so that clips from
+    # different B-Roll source files (e.g. "broll_main", "slap") never collide.
+    clip_label = re.sub(r"[^a-zA-Z0-9_-]", "_", source_path.stem or "clip")
+    filename = f"{safe_project}_{clip_label}_seg{segment_index:03d}.mp4"
     target = public_dir / filename
 
     if target.exists():
@@ -961,6 +975,34 @@ export const Segment{index}: React.FC<{{ splitRatio: number; visualTransforms: S
 );
 '''
 
+    if joined["layout"] == "broll_only":
+        aroll_dims = joined.get("aroll_dims") or {"width": 1080, "height": 1920}
+        broll_dims = joined.get("broll_dims") or {"width": 1920, "height": 1080}
+        return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
+import React from "react";
+import {{ staticFile }} from "remotion";
+import {{ BRollOnly }} from "./layouts/BRollOnly";
+
+type SegmentTransforms = {{
+    aroll: {{ zoom: number; posX: number; posY: number }};
+    broll: {{ zoom: number; posX: number; posY: number }};
+}};
+
+export const Segment{index}: React.FC<{{ visualTransforms: SegmentTransforms }}> = ({{ visualTransforms }}) => (
+    <BRollOnly
+        brollSrc={{staticFile({json.dumps(joined["broll_src"])})}}
+        arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
+        brollSourceSize={{{{ width: {broll_dims['width']}, height: {broll_dims['height']} }}}}
+        arollSourceSize={{{{ width: {aroll_dims['width']}, height: {aroll_dims['height']} }}}}
+        brollTrimStart={{{joined["broll_trim_start"]}}}
+        arollTrimStart={{{joined["aroll_trim_start"]}}}
+        durationSec={{{joined["duration_sec"]}}}
+        brollTransform={{visualTransforms.broll}}
+        fps={{{FPS}}}
+    />
+);
+'''
+
     aroll_dims = joined.get("aroll_dims") or {"width": 1080, "height": 1920}
     return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
 import React from "react";
@@ -1077,167 +1119,283 @@ def generate_remotion_components(project_name: str) -> int:
     video_dir = project_dir / "video"
 
     aroll_json_path = video_dir / "aroll_segments.json"
-    broll_json_path = video_dir / "broll_main_segments.json"
     output_dir = project_root / "remotion-src" / "src"
 
     if not aroll_json_path.is_file():
         raise ValueError(f"A-roll JSON not found at {aroll_json_path}")
-    if not broll_json_path.is_file():
-        raise ValueError(f"B-roll JSON not found at {broll_json_path}")
 
     try:
         aroll_json = json.loads(aroll_json_path.read_text("utf-8"))
-        broll_json = json.loads(broll_json_path.read_text("utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON: {exc}") from exc
 
     aroll_json = normalize_aroll_json(aroll_json)
-    broll_json = normalize_broll_json(broll_json)
-
     aroll_src_path = project_root / project_name / "video" / str(aroll_json.get("video", ""))
-    broll_src_path = project_root / project_name / "video" / str(broll_json.get("video", ""))
-
-    if not aroll_src_path.is_file():
-        raise ValueError(f"A-roll video not found at {aroll_src_path}")
-    if not broll_src_path.is_file():
-        raise ValueError(f"B-roll video not found at {broll_src_path}")
-
     aroll_segments = aroll_json.get("segments", [])
-    broll_segments = broll_json.get("segments", [])
-    if not isinstance(aroll_segments, list) or not isinstance(broll_segments, list):
-        raise ValueError("Invalid segments structure in source JSON")
+
+    # Discover all B-Roll segment JSON files. Sort: broll_main first, then alphabetical.
+    broll_json_list: list[tuple[Path, dict]] = []
+    for p in sorted(video_dir.glob("*_segments.json")):
+        if p.name == "aroll_segments.json":
+            continue
+        try:
+            raw = json.loads(p.read_text("utf-8"))
+        except json.JSONDecodeError:
+            print(f"Warning: skipping {p.name}: invalid JSON")
+            continue
+        if str(raw.get("type", "")).lower() == "broll":
+            broll_json_list.append((p, normalize_broll_json(raw)))
+    broll_json_list.sort(key=lambda x: (0 if "broll_main" in x[0].stem else 1, x[0].name))
+
+    if not broll_json_list:
+        raise ValueError(f"No B-roll segment JSON files found in {video_dir}")
+
+    # Validate video files for all B-Roll sources.
+    for broll_json_path, broll_json in broll_json_list:
+        broll_src = project_root / project_name / "video" / str(broll_json.get("video", ""))
+        broll_segs = broll_json.get("segments", [])
+        needs_broll_video = any(
+            FORMAT_MAP.get(str(s.get("broll_format", "")), FALLBACK_LAYOUT) in ("half_and_half", "broll_only")
+            for s in broll_segs
+            if isinstance(s, dict)
+        )
+        if needs_broll_video and not broll_src.is_file():
+            raise ValueError(f"B-roll video not found at {broll_src}")
+
+    needs_aroll_video = any(
+        isinstance(s, dict)
+        for _, broll_json in broll_json_list
+        for s in broll_json.get("segments", [])
+    )
+    if needs_aroll_video and not aroll_src_path.is_file():
+        raise ValueError(f"A-roll video not found at {aroll_src_path}")
+
+    if not isinstance(aroll_segments, list):
+        raise ValueError("Invalid segments structure in A-roll JSON")
 
     joined_segments: list[dict] = []
     assigned_aroll_indices: set[int] = set()
 
-    for idx, bseg in enumerate(broll_segments):
-        label = _segment_label(idx, bseg)
+    # Process each B-Roll file in order.  local_idx is the segment's position within
+    # its own file (used for broll clip naming so clips from different files never
+    # collide).  aroll clip names are keyed by aroll_segment_index so the preview
+    # can look them up directly from the segment's aroll_segment_index field.
+    for broll_json_path, broll_json in broll_json_list:
+        broll_src_path = project_root / project_name / "video" / str(broll_json.get("video", ""))
+        broll_segments = broll_json.get("segments", [])
 
-        aroll_idx = bseg.get("aroll_segment_index")
-        if not isinstance(aroll_idx, int) or aroll_idx < 0 or aroll_idx >= len(aroll_segments):
-            raise ValueError(f"{label}: invalid aroll_segment_index={aroll_idx}")
-        assigned_aroll_indices.add(aroll_idx)
+        for local_idx, bseg in enumerate(broll_segments):
+            label = _segment_label(len(joined_segments), bseg)
 
-        aroll_seg = aroll_segments[aroll_idx]
-        max_duration = _as_float(bseg.get("max_duration"), "max_duration")
-        if max_duration <= 0:
-            raise ValueError(f"{label}: max_duration must be > 0")
+            format_label = str(bseg.get("broll_format", ""))
+            layout = FORMAT_MAP.get(format_label)
+            if layout is None:
+                print(
+                    f"Warning: {label}: unknown broll_format '{format_label}', using fallback '{FALLBACK_LAYOUT}'"
+                )
+                layout = FALLBACK_LAYOUT
 
-        raw_start = _safe_optional_float(bseg.get("start"))
-        raw_end = _safe_optional_float(bseg.get("end"))
+            raw_start = _safe_optional_float(bseg.get("start"))
+            raw_end = _safe_optional_float(bseg.get("end"))
 
-        # Legacy/incomplete segment data can omit start/end; derive stable timings
-        # from max_duration so generation still succeeds.
-        if raw_start is None and raw_end is None:
-            broll_start = 0.0
-            duration_sec = round(max_duration, 3)
-            broll_end = broll_start + duration_sec
-            print(
-                f"Warning: {label}: missing start/end, defaulting broll trim to 0s for {duration_sec:.3f}s"
-            )
-        elif raw_start is not None and raw_end is None:
-            broll_start = max(0.0, raw_start)
-            duration_sec = round(max_duration, 3)
-            broll_end = broll_start + duration_sec
-            print(
-                f"Warning: {label}: missing end, deriving from start + max_duration ({duration_sec:.3f}s)"
-            )
-        elif raw_start is None and raw_end is not None:
-            duration_sec = round(max_duration, 3)
-            broll_end = max(0.0, raw_end)
-            broll_start = max(0.0, broll_end - duration_sec)
-            print(
-                f"Warning: {label}: missing start, deriving from end - max_duration ({duration_sec:.3f}s)"
-            )
-        else:
-            broll_start = max(0.0, float(raw_start))
-            broll_end = max(broll_start, float(raw_end))
-            duration_sec = round(broll_end - broll_start, 3)
-            if duration_sec <= 0:
+            if layout == "broll_only":
+                # B-Roll Only: visually full-frame B-roll, audio from the associated A-roll segment.
+                if not broll_src_path.is_file():
+                    raise ValueError(
+                        f"{label}: B-Roll Only requires a B-roll video at {broll_src_path}"
+                    )
+                # A-roll association is required for audio.
+                aroll_idx = bseg.get("aroll_segment_index")
+                if not isinstance(aroll_idx, int) or aroll_idx < 0 or aroll_idx >= len(aroll_segments):
+                    raise ValueError(
+                        f"{label}: B-Roll Only requires a valid aroll_segment_index (got {aroll_idx!r})"
+                    )
+                assigned_aroll_indices.add(aroll_idx)
+
+                aroll_seg = aroll_segments[aroll_idx]
+
+                # Duration is driven by the A-roll segment (same as Half-And-Half).
+                partitions = aroll_seg.get("partitions", [])
+                if not isinstance(partitions, list):
+                    partitions = []
+                if partitions:
+                    part_idx = bseg.get("aroll_partition_index")
+                    if not isinstance(part_idx, int) or part_idx < 0 or part_idx >= len(partitions):
+                        raise ValueError(
+                            f"{label}: aroll_partition_index out of bounds ({part_idx})"
+                        )
+                    part = partitions[part_idx]
+                    aroll_trim_start = _as_float(part.get("start"), "partition.start")
+                    aroll_trim_end = _as_float(part.get("end"), "partition.end")
+                else:
+                    aroll_trim_start = _as_float(aroll_seg.get("start"), "aroll.start")
+                    aroll_trim_end = _as_float(aroll_seg.get("end"), "aroll.end")
+
+                duration_sec = round(max(0.0, aroll_trim_end - aroll_trim_start), 3)
+                if duration_sec <= 0:
+                    raise ValueError(f"{label}: A-roll segment has non-positive duration")
+
+                broll_start = max(0.0, float(raw_start)) if raw_start is not None else 0.0
+
+                # Aroll clip keyed by aroll_segment_index so the HTML preview can look it up.
+                aroll_public_src = _ensure_preview_segment_clip(
+                    project_root=project_root,
+                    project_name=project_name,
+                    kind="aroll",
+                    segment_index=aroll_idx,
+                    source_path=aroll_src_path,
+                    trim_start=aroll_trim_start,
+                    duration_sec=duration_sec,
+                )
+                # Broll clip keyed by local_idx within this broll file (video stem in name prevents collisions).
+                broll_public_src = _ensure_preview_segment_clip(
+                    project_root=project_root,
+                    project_name=project_name,
+                    kind="broll",
+                    segment_index=local_idx,
+                    source_path=broll_src_path,
+                    trim_start=broll_start,
+                    duration_sec=duration_sec,
+                )
+                aroll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / aroll_public_src)
+                broll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / broll_public_src)
+
+                joined_segments.append(
+                    {
+                        "layout": "broll_only",
+                        "aroll_src": aroll_public_src,
+                        "broll_src": broll_public_src,
+                        "aroll_dims": aroll_dims,
+                        "broll_dims": broll_dims,
+                        "aroll_trim_start": 0,
+                        "broll_trim_start": 0,
+                        "duration_sec": duration_sec,
+                        "source_broll": bseg,
+                    }
+                )
+                continue
+
+            # For all other layouts, an A-roll segment association is required.
+            aroll_idx = bseg.get("aroll_segment_index")
+            if not isinstance(aroll_idx, int) or aroll_idx < 0 or aroll_idx >= len(aroll_segments):
+                raise ValueError(f"{label}: invalid aroll_segment_index={aroll_idx}")
+            assigned_aroll_indices.add(aroll_idx)
+
+            aroll_seg = aroll_segments[aroll_idx]
+            max_duration = _as_float(bseg.get("max_duration"), "max_duration")
+            if max_duration <= 0:
+                raise ValueError(f"{label}: max_duration must be > 0")
+
+            # Legacy/incomplete segment data can omit start/end; derive stable timings
+            # from max_duration so generation still succeeds.
+            if raw_start is None and raw_end is None:
+                broll_start = 0.0
                 duration_sec = round(max_duration, 3)
                 broll_end = broll_start + duration_sec
                 print(
-                    f"Warning: {label}: non-positive end-start, using max_duration ({duration_sec:.3f}s)"
+                    f"Warning: {label}: missing start/end, defaulting broll trim to 0s for {duration_sec:.3f}s"
                 )
-            elif abs(max_duration - duration_sec) > 0.01:
+            elif raw_start is not None and raw_end is None:
+                broll_start = max(0.0, raw_start)
+                duration_sec = round(max_duration, 3)
+                broll_end = broll_start + duration_sec
                 print(
-                    f"Warning: {label}: max_duration ({max_duration}) != end-start ({duration_sec}); using end-start"
+                    f"Warning: {label}: missing end, deriving from start + max_duration ({duration_sec:.3f}s)"
+                )
+            elif raw_start is None and raw_end is not None:
+                duration_sec = round(max_duration, 3)
+                broll_end = max(0.0, raw_end)
+                broll_start = max(0.0, broll_end - duration_sec)
+                print(
+                    f"Warning: {label}: missing start, deriving from end - max_duration ({duration_sec:.3f}s)"
+                )
+            else:
+                broll_start = max(0.0, float(raw_start))
+                broll_end = max(broll_start, float(raw_end))
+                duration_sec = round(broll_end - broll_start, 3)
+                if duration_sec <= 0:
+                    duration_sec = round(max_duration, 3)
+                    broll_end = broll_start + duration_sec
+                    print(
+                        f"Warning: {label}: non-positive end-start, using max_duration ({duration_sec:.3f}s)"
+                    )
+                elif abs(max_duration - duration_sec) > 0.01:
+                    print(
+                        f"Warning: {label}: max_duration ({max_duration}) != end-start ({duration_sec}); using end-start"
+                    )
+
+            partitions = aroll_seg.get("partitions", [])
+            if not isinstance(partitions, list):
+                partitions = []
+
+            if partitions:
+                part_idx = bseg.get("aroll_partition_index")
+                if not isinstance(part_idx, int) or part_idx < 0 or part_idx >= len(partitions):
+                    raise ValueError(f"{label}: aroll_partition_index out of bounds ({part_idx})")
+                part = partitions[part_idx]
+                aroll_trim_start = _as_float(part.get("start"), "partition.start")
+                _ = _as_float(part.get("end"), "partition.end")
+            else:
+                aroll_trim_start = _as_float(aroll_seg.get("start"), "aroll.start")
+                _ = _as_float(aroll_seg.get("end"), "aroll.end")
+
+            if layout == "half_and_half" and not broll_src_path.is_file():
+                raise ValueError(
+                    f"{label}: layout is {format_label or 'Half-And-Half Split'} "
+                    f"but B-roll video not found at {broll_src_path}"
                 )
 
-        partitions = aroll_seg.get("partitions", [])
-        if not isinstance(partitions, list):
-            partitions = []
-
-        if partitions:
-            part_idx = bseg.get("aroll_partition_index")
-            if not isinstance(part_idx, int) or part_idx < 0 or part_idx >= len(partitions):
-                raise ValueError(f"{label}: aroll_partition_index out of bounds ({part_idx})")
-            part = partitions[part_idx]
-            aroll_trim_start = _as_float(part.get("start"), "partition.start")
-            _ = _as_float(part.get("end"), "partition.end")
-        else:
-            aroll_trim_start = _as_float(aroll_seg.get("start"), "aroll.start")
-            _ = _as_float(aroll_seg.get("end"), "aroll.end")
-
-        format_label = str(bseg.get("broll_format", ""))
-        layout = FORMAT_MAP.get(format_label)
-        if layout is None:
-            print(
-                f"Warning: {label}: unknown broll_format '{format_label}', using fallback '{FALLBACK_LAYOUT}'"
-            )
-            layout = FALLBACK_LAYOUT
-
-        if layout == "half_and_half" and not broll_src_path.is_file():
-            raise ValueError(
-                f"{label}: layout is {format_label or 'Half-And-Half Split'} "
-                f"but B-roll video not found at {broll_src_path}"
-            )
-
-        aroll_public_src = _ensure_preview_segment_clip(
-            project_root=project_root,
-            project_name=project_name,
-            kind="aroll",
-            segment_index=idx,
-            source_path=aroll_src_path,
-            trim_start=aroll_trim_start,
-            duration_sec=duration_sec,
-        )
-
-        broll_public_src = ""
-        broll_dims = None
-        if layout == "half_and_half":
-            broll_public_src = _ensure_preview_segment_clip(
+            # Aroll clip keyed by aroll_segment_index.
+            aroll_public_src = _ensure_preview_segment_clip(
                 project_root=project_root,
                 project_name=project_name,
-                kind="broll",
-                segment_index=idx,
-                source_path=broll_src_path,
-                trim_start=broll_start,
+                kind="aroll",
+                segment_index=aroll_idx,
+                source_path=aroll_src_path,
+                trim_start=aroll_trim_start,
                 duration_sec=duration_sec,
             )
-            broll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / broll_public_src)
 
-        aroll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / aroll_public_src)
+            broll_public_src = ""
+            broll_dims = None
+            if layout == "half_and_half":
+                # Broll clip keyed by local_idx within this broll file.
+                broll_public_src = _ensure_preview_segment_clip(
+                    project_root=project_root,
+                    project_name=project_name,
+                    kind="broll",
+                    segment_index=local_idx,
+                    source_path=broll_src_path,
+                    trim_start=broll_start,
+                    duration_sec=duration_sec,
+                )
+                broll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / broll_public_src)
 
-        joined_segments.append(
-            {
-                "layout": layout,
-                "aroll_src": aroll_public_src,
-                "broll_src": broll_public_src,
-                "aroll_dims": aroll_dims,
-                "broll_dims": broll_dims,
-                "aroll_trim_start": 0,
-                "broll_trim_start": 0,
-                "duration_sec": duration_sec,
-                "source_broll": bseg,
-            }
-        )
+            aroll_dims = _probe_video_dimensions(project_root / "remotion-src" / "public" / aroll_public_src)
+
+            joined_segments.append(
+                {
+                    "layout": layout,
+                    "aroll_src": aroll_public_src,
+                    "broll_src": broll_public_src,
+                    "aroll_dims": aroll_dims,
+                    "broll_dims": broll_dims,
+                    "aroll_trim_start": 0,
+                    "broll_trim_start": 0,
+                    "duration_sec": duration_sec,
+                    "source_broll": bseg,
+                }
+            )
 
     # Keep A-Roll segments that are not linked by any B-Roll as A-Roll-only
-    # clips in the generated composition.
+    # clips in the generated composition.  Aroll clips are keyed by their own
+    # aroll_idx so the HTML preview can look them up via aroll_segment_index.
     unassigned_added = 0
     for aroll_idx, aroll_seg in enumerate(aroll_segments):
         if aroll_idx in assigned_aroll_indices:
+            continue
+        if not aroll_src_path.is_file():
+            print(f"Info: skipping unassigned aroll segment {aroll_idx}: A-roll video not found")
             continue
 
         aroll_start = _as_float(aroll_seg.get("start"), "aroll.start")
@@ -1246,12 +1404,11 @@ def generate_remotion_components(project_name: str) -> int:
         if duration_sec <= 0:
             continue
 
-        clip_idx = len(broll_segments) + unassigned_added
         aroll_public_src = _ensure_preview_segment_clip(
             project_root=project_root,
             project_name=project_name,
             kind="aroll",
-            segment_index=clip_idx,
+            segment_index=aroll_idx,
             source_path=aroll_src_path,
             trim_start=aroll_start,
             duration_sec=duration_sec,
@@ -1362,6 +1519,34 @@ class TrimmerHandler(http.server.BaseHTTPRequestHandler):
                 self._json({"segments": []})
                 return
             self._json(broll_data)
+        elif path == "/api/aroll-used-cross-video":
+            # Returns all aroll_segment_index values assigned in OTHER broll segment files
+            # (i.e. every broll video except the current one). Used by the UI to prevent
+            # the same A-roll segment from being assigned to segments across different videos.
+            session = self._session()
+            project_dir = WORKSPACE / session["project"] / "video"
+            current_video = session["videoFilename"]
+            used_indices: set[int] = set()
+            if project_dir.is_dir():
+                for seg_file in project_dir.glob("*_segments.json"):
+                    # Derive the video filename that would produce this segments file.
+                    stem = seg_file.stem[: -len("_segments")]  # strip "_segments"
+                    # Skip aroll and the current video.
+                    if stem in ("aroll",):
+                        continue
+                    if f"{stem}.mp4" == current_video or f"{stem}.webm" == current_video:
+                        continue
+                    try:
+                        raw = json.loads(seg_file.read_text("utf-8"))
+                        for seg in raw.get("segments", []):
+                            if not isinstance(seg, dict):
+                                continue
+                            idx_val = seg.get("aroll_segment_index")
+                            if isinstance(idx_val, int) and idx_val >= 0:
+                                used_indices.add(idx_val)
+                    except (OSError, json.JSONDecodeError):
+                        pass
+            self._json({"usedIndices": sorted(used_indices)})
         elif path == "/api/ping":
             self._json({"ok": True})
         elif path == "/api/has-audio":

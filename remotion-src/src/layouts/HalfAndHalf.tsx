@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Html5Video } from "remotion";
+import { AbsoluteFill, Video } from "remotion";
 
 type LayerTransform = {
   zoom: number;
@@ -133,7 +133,7 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
             transformOrigin: "center center",
           }}
         >
-          <Html5Video
+          <Video
             src={brollSrc}
             startFrom={startBroll}
             endAt={endBroll}
@@ -166,7 +166,7 @@ export const HalfAndHalf: React.FC<HalfAndHalfProps> = ({
             transformOrigin: "center center",
           }}
         >
-          <Html5Video
+          <Video
             src={arollSrc}
             startFrom={startAroll}
             endAt={endAroll}

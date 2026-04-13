@@ -5,11 +5,11 @@
   "segments": [
     {
       "name": "Segment 1",
-      "start": null,
-      "end": null,
-      "aroll_segment_index": 0,
-      "aroll_segment_name": "Segment 1",
-      "max_duration": 1.967,
+      "start": 0.707,
+      "end": 5.559,
+      "aroll_segment_index": 2,
+      "aroll_segment_name": "Segment 3",
+      "max_duration": 4.852,
       "broll_format": "B-Roll Only",
       "splitRatio": 0.5,
       "visual_transforms": {
@@ -17,6 +17,29 @@
           "zoom": 1.0,
           "posX": 0.0,
           "posY": 0.0
+        },
+        "broll": {
+          "zoom": 1.2,
+          "posX": -43.0,
+          "posY": 269.0
+        }
+      },
+      "aroll_partition_index": 0
+    },
+    {
+      "name": "Segment 2",
+      "start": 0,
+      "end": 3.694,
+      "aroll_segment_index": 3,
+      "aroll_segment_name": "Segment 4",
+      "max_duration": 3.694,
+      "broll_format": "Half-And-Half Split",
+      "splitRatio": 0.5,
+      "visual_transforms": {
+        "aroll": {
+          "zoom": 1.1,
+          "posX": 0.0,
+          "posY": 223.0
         },
         "broll": {
           "zoom": 1.0,

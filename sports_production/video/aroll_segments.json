@@ -56,6 +56,24 @@
         }
       },
       "partitions": []
+    },
+    {
+      "name": "Segment 4",
+      "start": 113.044,
+      "end": 116.738,
+      "visual_transforms": {
+        "aroll": {
+          "zoom": 1.16,
+          "posX": -5.0,
+          "posY": -134.0
+        },
+        "broll": {
+          "zoom": 1.0,
+          "posX": 0.0,
+          "posY": 0.0
+        }
+      },
+      "partitions": []
     }
   ]
 }

@@ -42,6 +42,22 @@
           "posY": 0.0
         },
         "broll": {
+          "zoom": 1.2,
+          "posX": -43.0,
+          "posY": 269.0
+        }
+      }
+    },
+    {
+      "index": 3,
+      "splitRatio": 0.5,
+      "visualTransforms": {
+        "aroll": {
+          "zoom": 1.1,
+          "posX": 0.0,
+          "posY": 223.0
+        },
+        "broll": {
           "zoom": 1.0,
           "posX": 0.0,
           "posY": 0.0

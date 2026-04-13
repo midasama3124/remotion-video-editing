@@ -4,8 +4,9 @@ import { Sequence } from "remotion";
 import { Segment0 } from "./Segment0";
 import { Segment1 } from "./Segment1";
 import { Segment2 } from "./Segment2";
+import { Segment3 } from "./Segment3";
 
-export const TOTAL_DURATION_FRAMES = 290;
+export const TOTAL_DURATION_FRAMES = 401;
 
 type SegmentTransforms = {
   aroll: { zoom: number; posX: number; posY: number };
@@ -26,6 +27,9 @@ export const MyComposition: React.FC<Props> = ({ segments }) => (
     </Sequence>
     <Sequence from={144} durationInFrames={146}>
       <Segment2 visualTransforms={segments[2].visualTransforms} />
+    </Sequence>
+    <Sequence from={290} durationInFrames={111}>
+      <Segment3 splitRatio={segments[3].splitRatio} visualTransforms={segments[3].visualTransforms} />
     </Sequence>
   </>
 );

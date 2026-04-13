@@ -8,15 +8,15 @@ type SegmentTransforms = {
     broll: { zoom: number; posX: number; posY: number };
 };
 
-export const Segment1: React.FC<{ splitRatio: number; visualTransforms: SegmentTransforms }> = ({ splitRatio, visualTransforms }) => (
+export const Segment3: React.FC<{ splitRatio: number; visualTransforms: SegmentTransforms }> = ({ splitRatio, visualTransforms }) => (
   <HalfAndHalf
-        arollSrc={staticFile("sports_production_aroll_seg001.mp4")}
-        brollSrc={staticFile("sports_production_broll_main_seg001.mp4")}
+        arollSrc={staticFile("sports_production_aroll_seg003.mp4")}
+        brollSrc={staticFile("sports_production_slap_seg001.mp4")}
     arollSourceSize={{ width: 1080, height: 1920 }}
     brollSourceSize={{ width: 1920, height: 1080 }}
     arollTrimStart={0}
     brollTrimStart={0}
-    durationSec={2.835}
+    durationSec={3.694}
     splitRatio={splitRatio}
         arollTransform={visualTransforms.aroll}
         brollTransform={visualTransforms.broll}
