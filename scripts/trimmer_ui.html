@@ -1321,7 +1321,7 @@ const BROLL_FORMAT_OPTIONS = [
 // It is not shown in the dropdown but must remain valid so existing data is preserved.
 const BROLL_FORMAT_VALID = new Set([...BROLL_FORMAT_OPTIONS, 'A-Roll Only']);
 const DEFAULT_BROLL_FORMAT = 'Half-And-Half Split';
-const TRANSFORM_SUPPORTED_FORMATS = new Set(['Half-And-Half Split', 'B-Roll Only']);
+const TRANSFORM_SUPPORTED_FORMATS = new Set(['Half-And-Half Split', 'B-Roll Only', 'B-Roll Main, A-Roll Bubble']);
 const TRANSFORM_LAYER_OPTIONS = [
     { value: 'aroll', label: 'A-Roll' },
     { value: 'broll', label: 'B-Roll' },
@@ -1337,10 +1337,20 @@ const TRANSFORM_LIMITS = {
     posX: { min: -600, max: 600, step: 1, decimals: 0 },
     posY: { min: -600, max: 600, step: 1, decimals: 0 },
 };
+// Must match BASE_BUBBLE_RADIUS in BRollBubble.tsx
+const BASE_BUBBLE_RADIUS = 250;
+const BUBBLE_TRANSFORM_LIMITS = {
+    zoom:     { min: 0.2, max: 3.0,  step: 0.01, decimals: 2 },
+    posX:     { min: -540, max: 540, step: 1,    decimals: 0 },
+    posY:     { min: -960, max: 960, step: 1,    decimals: 0 },
+    softness: { min: 0.0, max: 1.0,  step: 0.01, decimals: 2 },
+};
+const DEFAULT_BUBBLE_TRANSFORM = { posX: -270, posY: 700, zoom: 1.0, softness: 0.3 };
 const DEFAULT_LAYER_TRANSFORM = { zoom: 1.0, posX: 0.0, posY: 0.0 };
 const DEFAULT_VISUAL_TRANSFORMS = {
-    aroll: { ...DEFAULT_LAYER_TRANSFORM },
-    broll: { ...DEFAULT_LAYER_TRANSFORM },
+    aroll:  { ...DEFAULT_LAYER_TRANSFORM },
+    broll:  { ...DEFAULT_LAYER_TRANSFORM },
+    bubble: { ...DEFAULT_BUBBLE_TRANSFORM },
 };
 
 const COLORS = [
@@ -1462,6 +1472,12 @@ function cloneTransforms(transforms) {
             posX: Number(transforms?.broll?.posX),
             posY: Number(transforms?.broll?.posY),
         },
+        bubble: {
+            posX:     Number(transforms?.bubble?.posX),
+            posY:     Number(transforms?.bubble?.posY),
+            zoom:     Number(transforms?.bubble?.zoom),
+            softness: Number(transforms?.bubble?.softness),
+        },
     };
 }
 
@@ -1474,11 +1490,22 @@ function normalizeLayerTransformClient(layer) {
     };
 }
 
+function normalizeBubbleTransformClient(bubble) {
+    const b = bubble && typeof bubble === 'object' ? bubble : {};
+    return {
+        posX:     roundN(clamp(Number.isFinite(Number(b.posX))     ? Number(b.posX)     : DEFAULT_BUBBLE_TRANSFORM.posX,     BUBBLE_TRANSFORM_LIMITS.posX.min,     BUBBLE_TRANSFORM_LIMITS.posX.max),     BUBBLE_TRANSFORM_LIMITS.posX.decimals),
+        posY:     roundN(clamp(Number.isFinite(Number(b.posY))     ? Number(b.posY)     : DEFAULT_BUBBLE_TRANSFORM.posY,     BUBBLE_TRANSFORM_LIMITS.posY.min,     BUBBLE_TRANSFORM_LIMITS.posY.max),     BUBBLE_TRANSFORM_LIMITS.posY.decimals),
+        zoom:     roundN(clamp(Number.isFinite(Number(b.zoom))     ? Number(b.zoom)     : DEFAULT_BUBBLE_TRANSFORM.zoom,     BUBBLE_TRANSFORM_LIMITS.zoom.min,     BUBBLE_TRANSFORM_LIMITS.zoom.max),     BUBBLE_TRANSFORM_LIMITS.zoom.decimals),
+        softness: roundN(clamp(Number.isFinite(Number(b.softness)) ? Number(b.softness) : DEFAULT_BUBBLE_TRANSFORM.softness, BUBBLE_TRANSFORM_LIMITS.softness.min, BUBBLE_TRANSFORM_LIMITS.softness.max), BUBBLE_TRANSFORM_LIMITS.softness.decimals),
+    };
+}
+
 function normalizeVisualTransformsClient(transforms) {
     const src = transforms && typeof transforms === 'object' ? transforms : {};
     return {
-        aroll: normalizeLayerTransformClient(src.aroll),
-        broll: normalizeLayerTransformClient(src.broll),
+        aroll:  normalizeLayerTransformClient(src.aroll),
+        broll:  normalizeLayerTransformClient(src.broll),
+        bubble: normalizeBubbleTransformClient(src.bubble),
     };
 }
 
@@ -1494,7 +1521,11 @@ function transformsAreDefault(transforms) {
         && t.aroll.posY === DEFAULT_VISUAL_TRANSFORMS.aroll.posY
         && t.broll.zoom === DEFAULT_VISUAL_TRANSFORMS.broll.zoom
         && t.broll.posX === DEFAULT_VISUAL_TRANSFORMS.broll.posX
-        && t.broll.posY === DEFAULT_VISUAL_TRANSFORMS.broll.posY;
+        && t.broll.posY === DEFAULT_VISUAL_TRANSFORMS.broll.posY
+        && t.bubble.posX === DEFAULT_BUBBLE_TRANSFORM.posX
+        && t.bubble.posY === DEFAULT_BUBBLE_TRANSFORM.posY
+        && t.bubble.zoom === DEFAULT_BUBBLE_TRANSFORM.zoom
+        && t.bubble.softness === DEFAULT_BUBBLE_TRANSFORM.softness;
 }
 
 function canEditTransformsForSegment(seg) {
@@ -1506,6 +1537,22 @@ function canEditTransformsForSegment(seg) {
     return config.mode === 'broll' && TRANSFORM_SUPPORTED_FORMATS.has(normalizeBrollFormat(seg.broll_format));
 }
 
+function getAvailableTransformFieldsForLayer(layerKey) {
+    if (layerKey === 'bubble') {
+        return [
+            { value: 'posX',     label: 'Position X' },
+            { value: 'posY',     label: 'Position Y' },
+            { value: 'zoom',     label: 'Size' },
+            { value: 'softness', label: 'Edge Softness' },
+        ];
+    }
+    return [
+        { value: 'zoom', label: 'Zoom' },
+        { value: 'posX', label: 'Position X' },
+        { value: 'posY', label: 'Position Y' },
+    ];
+}
+
 function getAvailableTransformLayersForSegment(seg) {
     if (!seg || !canEditTransformsForSegment(seg)) {
         return [];
@@ -1515,6 +1562,13 @@ function getAvailableTransformLayersForSegment(seg) {
     }
     if (normalizeBrollFormat(seg?.broll_format) === 'B-Roll Only') {
         return [{ value: 'broll', label: 'B-Roll' }];
+    }
+    if (normalizeBrollFormat(seg?.broll_format) === 'B-Roll Main, A-Roll Bubble') {
+        return [
+            { value: 'broll',  label: 'Background (B-Roll)' },
+            { value: 'aroll',  label: 'Bubble Content' },
+            { value: 'bubble', label: 'Bubble' },
+        ];
     }
     return TRANSFORM_LAYER_OPTIONS;
 }
@@ -2820,25 +2874,27 @@ function normalizeTransformLayerSelection(value, layerOptions) {
     return options[0]?.value || DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey;
 }
 
-function normalizeTransformFieldSelection(value) {
-    if (value && Object.prototype.hasOwnProperty.call(TRANSFORM_LIMITS, value)) {
-        return value;
-    }
-    return DEFAULT_TRANSFORM_PANEL_SELECTION.fieldKey;
+function normalizeTransformFieldSelection(value, layerKey = 'aroll') {
+    const fields = getAvailableTransformFieldsForLayer(layerKey);
+    const allowed = new Set(fields.map((f) => f.value));
+    if (value && allowed.has(value)) return value;
+    return fields[0].value;
 }
 
 function getTransformPanelSelection(seg) {
     const layerOptions = getAvailableTransformLayersForSegment(seg);
     const current = transformPanelSelection.get(seg);
     if (current && typeof current === 'object') {
+        const layerKey = normalizeTransformLayerSelection(current.layerKey, layerOptions);
         return {
-            layerKey: normalizeTransformLayerSelection(current.layerKey, layerOptions),
-            fieldKey: normalizeTransformFieldSelection(current.fieldKey),
+            layerKey,
+            fieldKey: normalizeTransformFieldSelection(current.fieldKey, layerKey),
         };
     }
+    const layerKey = normalizeTransformLayerSelection(DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey, layerOptions);
     const fallback = {
-        layerKey: normalizeTransformLayerSelection(DEFAULT_TRANSFORM_PANEL_SELECTION.layerKey, layerOptions),
-        fieldKey: DEFAULT_TRANSFORM_PANEL_SELECTION.fieldKey,
+        layerKey,
+        fieldKey: normalizeTransformFieldSelection(DEFAULT_TRANSFORM_PANEL_SELECTION.fieldKey, layerKey),
     };
     transformPanelSelection.set(seg, fallback);
     return fallback;
@@ -2847,9 +2903,10 @@ function getTransformPanelSelection(seg) {
 function setTransformPanelSelection(seg, next) {
     const layerOptions = getAvailableTransformLayersForSegment(seg);
     const current = getTransformPanelSelection(seg);
+    const layerKey = normalizeTransformLayerSelection(next.layerKey ?? current.layerKey, layerOptions);
     transformPanelSelection.set(seg, {
-        layerKey: normalizeTransformLayerSelection(next.layerKey ?? current.layerKey, layerOptions),
-        fieldKey: normalizeTransformFieldSelection(next.fieldKey ?? current.fieldKey),
+        layerKey,
+        fieldKey: normalizeTransformFieldSelection(next.fieldKey ?? current.fieldKey, layerKey),
     });
 }
 
@@ -2896,13 +2953,24 @@ function ensurePreviewTransformSelectors() {
 }
 
 function ensurePreviewControlSelectors() {
-    if (!previewControlSelect || previewControlSelect.options.length) return;
-    TRANSFORM_CONTROL_OPTIONS.forEach((option) => {
+    if (!previewControlSelect) return;
+    const activeLayer = previewLayerSelect?.value || 'aroll';
+    const fields = getAvailableTransformFieldsForLayer(activeLayer);
+    // Rebuild only when the option set differs from what's currently rendered.
+    const currentValues = Array.from(previewControlSelect.options).map((o) => o.value).join(',');
+    const nextValues = fields.map((f) => f.value).join(',');
+    if (currentValues === nextValues) return;
+    const prevValue = previewControlSelect.value;
+    previewControlSelect.innerHTML = '';
+    fields.forEach((field) => {
         const opt = document.createElement('option');
-        opt.value = option.value;
-        opt.textContent = option.label;
+        opt.value = field.value;
+        opt.textContent = field.label;
         previewControlSelect.appendChild(opt);
     });
+    // Restore previous selection if still valid; otherwise default to first option.
+    const allowed = new Set(fields.map((f) => f.value));
+    previewControlSelect.value = allowed.has(prevValue) ? prevValue : fields[0].value;
 }
 
 function getPreviewLayerViewport(seg, layerKey) {
@@ -2933,14 +3001,30 @@ function getPreviewLayerViewport(seg, layerKey) {
         return { width: targetWidth, height: targetHeight };
     }
 
+    if (format === 'B-Roll Main, A-Roll Bubble') {
+        if (layerKey === 'broll' || layerKey === 'bubble') {
+            return { width: targetWidth, height: targetHeight };
+        }
+        // aroll: viewport is the bubble square (diameter × diameter)
+        const bubbleZoom = Number(seg?.visual_transforms?.bubble?.zoom) || 1.0;
+        const diameter = Math.round(BASE_BUBBLE_RADIUS * bubbleZoom * 2);
+        return { width: diameter, height: diameter };
+    }
+
     return { width: targetWidth, height: targetHeight };
 }
 
 function getPreviewLayerVideoEl(layerKey) {
+    // bubble layer has no dedicated video element; use aroll for any dynamic limit calcs
+    if (layerKey === 'bubble') return previewArollVideoEl;
     return layerKey === 'broll' ? previewBrollVideoEl : previewArollVideoEl;
 }
 
 function getDynamicPreviewLimits(seg, layerKey, fieldKey) {
+    // Bubble layer always uses fixed limits from BUBBLE_TRANSFORM_LIMITS
+    if (layerKey === 'bubble') {
+        return BUBBLE_TRANSFORM_LIMITS[fieldKey] || BUBBLE_TRANSFORM_LIMITS.zoom;
+    }
     const fallback = TRANSFORM_LIMITS[fieldKey] || TRANSFORM_LIMITS.zoom;
     if (!seg || fieldKey === 'zoom') return fallback;
 
@@ -2975,7 +3059,6 @@ function getDynamicPreviewLimits(seg, layerKey, fieldKey) {
 
 function updatePreviewTransformControls() {
     ensurePreviewTransformSelectors();
-    ensurePreviewControlSelectors();
 
     if (!previewLayerSelect || !previewControlSelect || !previewSlider || !previewNumber || !previewSliderLabel) {
         return;
@@ -2985,24 +3068,35 @@ function updatePreviewTransformControls() {
     const canEdit = Boolean(seg && canEditTransformsForSegment(seg));
     const layerOptions = getAvailableTransformLayersForSegment(seg);
 
-    previewLayerSelect.disabled = !canEdit;
-    previewControlSelect.disabled = !canEdit;
-    previewSlider.disabled = !canEdit;
-    previewNumber.disabled = !canEdit;
-
     if (!canEdit) {
+        previewLayerSelect.disabled = true;
+        previewControlSelect.disabled = true;
+        previewSlider.disabled = true;
+        previewNumber.disabled = true;
+        ensurePreviewControlSelectors();
         previewSliderLabel.textContent = 'Zoom';
         return;
     }
 
     const selection = getTransformPanelSelection(seg);
     const layerKey = normalizeTransformLayerSelection(selection.layerKey, layerOptions);
-    const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
+    const fieldKey = normalizeTransformFieldSelection(selection.fieldKey, layerKey);
+
+    // Set the layer value BEFORE rebuilding field options so ensurePreviewControlSelectors
+    // reads the correct active layer from the DOM (ensurePreviewTransformSelectors resets
+    // the select value to the first option when it rebuilds innerHTML).
+    previewLayerSelect.value = layerKey;
+    ensurePreviewControlSelectors();
+
     const limits = getDynamicPreviewLimits(seg, layerKey, fieldKey);
-    const controlLabel = TRANSFORM_CONTROL_OPTIONS.find((opt) => opt.value === fieldKey)?.label || 'Zoom';
+    const fieldOptions = getAvailableTransformFieldsForLayer(layerKey);
+    const controlLabel = fieldOptions.find((opt) => opt.value === fieldKey)?.label || 'Zoom';
     const value = ensureSegmentVisualTransforms(seg)[layerKey][fieldKey];
 
-    previewLayerSelect.value = layerKey;
+    previewLayerSelect.disabled = false;
+    previewControlSelect.disabled = false;
+    previewSlider.disabled = false;
+    previewNumber.disabled = false;
     previewControlSelect.value = fieldKey;
     previewSliderLabel.textContent = controlLabel;
     previewSlider.min = String(limits.min);
@@ -3024,7 +3118,7 @@ function applyPreviewTransformValue(rawValue) {
 
     const selection = getTransformPanelSelection(seg);
     const layerKey = normalizeTransformLayerSelection(selection.layerKey, getAvailableTransformLayersForSegment(seg));
-    const fieldKey = normalizeTransformFieldSelection(selection.fieldKey);
+    const fieldKey = normalizeTransformFieldSelection(selection.fieldKey, layerKey);
     const limits = getDynamicPreviewLimits(seg, layerKey, fieldKey);
     const parsed = Number(rawValue);
 
@@ -3104,7 +3198,7 @@ function applyLayerReset(seg, layerName) {
     const current = ensureSegmentVisualTransforms(seg);
 
     const next = cloneTransforms(current);
-    next[layerName] = { ...DEFAULT_LAYER_TRANSFORM };
+    next[layerName] = layerName === 'bubble' ? { ...DEFAULT_BUBBLE_TRANSFORM } : { ...DEFAULT_LAYER_TRANSFORM };
     const normalizedNext = normalizeVisualTransformsClient(next);
 
     if (segmentTransformsEqual(current, normalizedNext)) {
@@ -3232,6 +3326,8 @@ function getPreviewSegmentIndex(seg) {
 }
 
 function buildPreviewLayerSources(seg, layerKey) {
+    // bubble layer uses the A-Roll video element for preview purposes
+    if (layerKey === 'bubble') layerKey = 'aroll';
     const defaultBrollSrc = `/video/${encodeURIComponent(config.videoFilename || 'broll_main.mp4')}`;
     const defaultArollSrc = '/video/aroll.mp4';
     const fallbackSrc = layerKey === 'broll' ? defaultBrollSrc : defaultArollSrc;
@@ -3476,6 +3572,58 @@ function renderPreviewFrame() {
             ctx.moveTo(0, topHeight);
             ctx.lineTo(canvas.width, topHeight);
             ctx.stroke();
+        } else if (format === 'B-Roll Main, A-Roll Bubble') {
+            const W = canvas.width;
+            const H = canvas.height;
+
+            // 1. Draw B-Roll full-frame background
+            drawVideoCoverWithTransform(ctx, previewBrollVideoEl, 0, 0, W, H, transforms.broll);
+
+            // 2. Compute bubble geometry
+            const bubble = transforms.bubble || DEFAULT_BUBBLE_TRANSFORM;
+            const bRadius = Math.max(1, Math.round(BASE_BUBBLE_RADIUS * (Number(bubble.zoom) || 1.0)));
+            const bCx = W / 2 + (Number(bubble.posX) || 0);
+            const bCy = H / 2 + (Number(bubble.posY) || 0);
+            // softness ∈ [0, 1]: mirrors BRollBubble.tsx. 0 = hard edge, 1 = full fade.
+            const softness = clamp(Number(bubble.softness) || 0, 0, 1);
+            const bDiam = bRadius * 2;
+
+            // 3. Render the bubble on a separate canvas so that destination-out only
+            //    erases bubble pixels, leaving the B-roll beneath fully intact.
+            const bubbleCanvas = document.createElement('canvas');
+            bubbleCanvas.width = bDiam;
+            bubbleCanvas.height = bDiam;
+            const bCtx = bubbleCanvas.getContext('2d');
+
+            // Clip to circle (centered in bubble canvas)
+            bCtx.save();
+            bCtx.beginPath();
+            bCtx.arc(bRadius, bRadius, bRadius, 0, Math.PI * 2);
+            bCtx.clip();
+            // Draw A-Roll cover-scaled to fill the bubble square
+            drawVideoCoverWithTransform(
+                bCtx,
+                previewArollVideoEl,
+                0, 0, bDiam, bDiam,
+                transforms.aroll
+            );
+            bCtx.restore();
+
+            // Apply edge softness: erase the outer ring on the bubble canvas only.
+            // fadeStart = bRadius * (1 - softness) mirrors BRollBubble.tsx hardStopPct.
+            if (softness > 0) {
+                const fadeStart = bRadius * (1 - softness);
+                const grad = bCtx.createRadialGradient(bRadius, bRadius, fadeStart, bRadius, bRadius, bRadius);
+                grad.addColorStop(0, 'rgba(0,0,0,0)');
+                grad.addColorStop(1, 'rgba(0,0,0,1)');
+                bCtx.globalCompositeOperation = 'destination-out';
+                bCtx.fillStyle = grad;
+                bCtx.fillRect(0, 0, bDiam, bDiam);
+            }
+
+            // 4. Composite the bubble (transparent edges) over the B-roll on the main canvas.
+            //    source-over (default): transparent bubble pixels reveal the B-roll beneath.
+            ctx.drawImage(bubbleCanvas, bCx - bRadius, bCy - bRadius);
         } else {
             // For non-Half-And-Half formats, show the B-roll source full-frame.
             drawVideoCoverWithTransform(
@@ -3675,7 +3823,11 @@ function segmentTransformsEqual(a, b) {
         && aa.aroll.posY === bb.aroll.posY
         && aa.broll.zoom === bb.broll.zoom
         && aa.broll.posX === bb.broll.posX
-        && aa.broll.posY === bb.broll.posY;
+        && aa.broll.posY === bb.broll.posY
+        && aa.bubble.posX === bb.bubble.posX
+        && aa.bubble.posY === bb.bubble.posY
+        && aa.bubble.zoom === bb.bubble.zoom
+        && aa.bubble.softness === bb.bubble.softness;
 }
 
 async function postBulkVisualTransformUpdates(updates) {
@@ -4485,6 +4637,11 @@ function renderSegList() {
             makeOverflowAction('Reset B-Roll', () => {
                 showConfirm('Reset B-Roll', () => applyLayerReset(seg, 'broll'));
             });
+            if (normalizeBrollFormat(seg.broll_format) === 'B-Roll Main, A-Roll Bubble') {
+                makeOverflowAction('Reset Bubble', () => {
+                    showConfirm('Reset Bubble', () => applyLayerReset(seg, 'bubble'));
+                });
+            }
             makeOverflowAction('Reset Both', () => {
                 showConfirm('Reset both layers', () => applyAllReset(seg));
             });

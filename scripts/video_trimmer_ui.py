@@ -27,20 +27,34 @@ ZOOM_MAX = 2.0
 POSITION_MIN = -600.0
 POSITION_MAX = 600.0
 
+BUBBLE_ZOOM_MIN = 0.2
+BUBBLE_ZOOM_MAX = 3.0
+BUBBLE_SOFTNESS_MIN = 0.0
+BUBBLE_SOFTNESS_MAX = 1.0
+
 DEFAULT_LAYER_TRANSFORM = {
     "zoom": 1.0,
     "posX": 0.0,
     "posY": 0.0,
 }
 
+DEFAULT_BUBBLE_TRANSFORM = {
+    "posX": -270.0,
+    "posY": 700.0,
+    "zoom": 1.0,
+    "softness": 0.3,
+}
+
 DEFAULT_VISUAL_TRANSFORMS = {
     "aroll": dict(DEFAULT_LAYER_TRANSFORM),
     "broll": dict(DEFAULT_LAYER_TRANSFORM),
+    "bubble": dict(DEFAULT_BUBBLE_TRANSFORM),
 }
 
 FORMAT_MAP = {
     "Half-And-Half Split": "half_and_half",
     "B-Roll Only": "broll_only",
+    "B-Roll Main, A-Roll Bubble": "broll_bubble",
 }
 FALLBACK_LAYOUT = "aroll_only"
 
@@ -133,6 +147,16 @@ def _normalize_layer_transform(layer: dict | None) -> dict:
     }
 
 
+def _normalize_bubble_transform(bubble: dict | None) -> dict:
+    b = bubble if isinstance(bubble, dict) else {}
+    return {
+        "posX": round(_clamp(_safe_float(b.get("posX"), DEFAULT_BUBBLE_TRANSFORM["posX"]), -540.0, 540.0), 3),
+        "posY": round(_clamp(_safe_float(b.get("posY"), DEFAULT_BUBBLE_TRANSFORM["posY"]), -960.0, 960.0), 3),
+        "zoom": round(_clamp(_safe_float(b.get("zoom"), DEFAULT_BUBBLE_TRANSFORM["zoom"]), BUBBLE_ZOOM_MIN, BUBBLE_ZOOM_MAX), 4),
+        "softness": round(_clamp(_safe_float(b.get("softness"), DEFAULT_BUBBLE_TRANSFORM["softness"]), BUBBLE_SOFTNESS_MIN, BUBBLE_SOFTNESS_MAX), 2),
+    }
+
+
 def normalize_visual_transforms(transforms: dict | None) -> dict:
     """
     Normalize and clamp visual transforms for one B-Roll segment.
@@ -141,6 +165,7 @@ def normalize_visual_transforms(transforms: dict | None) -> dict:
     return {
         "aroll": _normalize_layer_transform(transforms.get("aroll")),
         "broll": _normalize_layer_transform(transforms.get("broll")),
+        "bubble": _normalize_bubble_transform(transforms.get("bubble")),
     }
 
 
@@ -953,9 +978,11 @@ import React from "react";
 import {{ staticFile }} from "remotion";
 import {{ HalfAndHalf }} from "./layouts/HalfAndHalf";
 
+type BubbleTransform = {{ posX: number; posY: number; zoom: number; softness: number }};
 type SegmentTransforms = {{
     aroll: {{ zoom: number; posX: number; posY: number }};
     broll: {{ zoom: number; posX: number; posY: number }};
+    bubble: BubbleTransform;
 }};
 
 export const Segment{index}: React.FC<{{ splitRatio: number; visualTransforms: SegmentTransforms }}> = ({{ splitRatio, visualTransforms }}) => (
@@ -983,9 +1010,11 @@ import React from "react";
 import {{ staticFile }} from "remotion";
 import {{ BRollOnly }} from "./layouts/BRollOnly";
 
+type BubbleTransform = {{ posX: number; posY: number; zoom: number; softness: number }};
 type SegmentTransforms = {{
     aroll: {{ zoom: number; posX: number; posY: number }};
     broll: {{ zoom: number; posX: number; posY: number }};
+    bubble: BubbleTransform;
 }};
 
 export const Segment{index}: React.FC<{{ visualTransforms: SegmentTransforms }}> = ({{ visualTransforms }}) => (
@@ -1003,15 +1032,49 @@ export const Segment{index}: React.FC<{{ visualTransforms: SegmentTransforms }}>
 );
 '''
 
+    if joined["layout"] == "broll_bubble":
+        aroll_dims = joined.get("aroll_dims") or {"width": 1080, "height": 1920}
+        broll_dims = joined.get("broll_dims") or {"width": 1920, "height": 1080}
+        return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
+import React from "react";
+import {{ staticFile }} from "remotion";
+import {{ BRollBubble }} from "./layouts/BRollBubble";
+
+type BubbleTransform = {{ posX: number; posY: number; zoom: number; softness: number }};
+type SegmentTransforms = {{
+    aroll: {{ zoom: number; posX: number; posY: number }};
+    broll: {{ zoom: number; posX: number; posY: number }};
+    bubble: BubbleTransform;
+}};
+
+export const Segment{index}: React.FC<{{ visualTransforms: SegmentTransforms }}> = ({{ visualTransforms }}) => (
+    <BRollBubble
+        brollSrc={{staticFile({json.dumps(joined["broll_src"])})}}
+        arollSrc={{staticFile({json.dumps(joined["aroll_src"])})}}
+        brollSourceSize={{{{ width: {broll_dims['width']}, height: {broll_dims['height']} }}}}
+        arollSourceSize={{{{ width: {aroll_dims['width']}, height: {aroll_dims['height']} }}}}
+        brollTrimStart={{{joined["broll_trim_start"]}}}
+        arollTrimStart={{{joined["aroll_trim_start"]}}}
+        durationSec={{{joined["duration_sec"]}}}
+        brollTransform={{visualTransforms.broll}}
+        arollTransform={{visualTransforms.aroll}}
+        bubbleTransform={{visualTransforms.bubble ?? {{ posX: -270, posY: 700, zoom: 1.0, softness: 0.3 }}}}
+        fps={{{FPS}}}
+    />
+);
+'''
+
     aroll_dims = joined.get("aroll_dims") or {"width": 1080, "height": 1920}
     return f'''// AUTO-GENERATED -- do not edit. Re-run via the trimmer UI to update.
 import React from "react";
 import {{ staticFile }} from "remotion";
 import {{ ARollOnly }} from "./layouts/ARollOnly";
 
+type BubbleTransform = {{ posX: number; posY: number; zoom: number; softness: number }};
 type SegmentTransforms = {{
     aroll: {{ zoom: number; posX: number; posY: number }};
     broll: {{ zoom: number; posX: number; posY: number }};
+    bubble: BubbleTransform;
 }};
 
 export const Segment{index}: React.FC<{{ visualTransforms: SegmentTransforms }}> = ({{ visualTransforms }}) => (
@@ -1042,9 +1105,11 @@ def _generate_composition_component(joined_segments: list[dict]) -> str:
             "",
             f"export const TOTAL_DURATION_FRAMES = {sum(max(1, round(seg['duration_sec'] * FPS)) for seg in joined_segments)};",
             "",
+            "type BubbleTransform = { posX: number; posY: number; zoom: number; softness: number };",
             "type SegmentTransforms = {",
             "  aroll: { zoom: number; posX: number; posY: number };",
             "  broll: { zoom: number; posX: number; posY: number };",
+            "  bubble: BubbleTransform;",
             "};",
             "",
             "type Props = {",
@@ -1155,7 +1220,7 @@ def generate_remotion_components(project_name: str) -> int:
         broll_src = project_root / project_name / "video" / str(broll_json.get("video", ""))
         broll_segs = broll_json.get("segments", [])
         needs_broll_video = any(
-            FORMAT_MAP.get(str(s.get("broll_format", "")), FALLBACK_LAYOUT) in ("half_and_half", "broll_only")
+            FORMAT_MAP.get(str(s.get("broll_format", "")), FALLBACK_LAYOUT) in ("half_and_half", "broll_only", "broll_bubble")
             for s in broll_segs
             if isinstance(s, dict)
         )
@@ -1339,9 +1404,9 @@ def generate_remotion_components(project_name: str) -> int:
                 aroll_trim_start = _as_float(aroll_seg.get("start"), "aroll.start")
                 _ = _as_float(aroll_seg.get("end"), "aroll.end")
 
-            if layout == "half_and_half" and not broll_src_path.is_file():
+            if layout in ("half_and_half", "broll_bubble") and not broll_src_path.is_file():
                 raise ValueError(
-                    f"{label}: layout is {format_label or 'Half-And-Half Split'} "
+                    f"{label}: layout is {format_label!r} "
                     f"but B-roll video not found at {broll_src_path}"
                 )
 
@@ -1358,7 +1423,7 @@ def generate_remotion_components(project_name: str) -> int:
 
             broll_public_src = ""
             broll_dims = None
-            if layout == "half_and_half":
+            if layout in ("half_and_half", "broll_bubble"):
                 # Broll clip keyed by local_idx within this broll file.
                 broll_public_src = _ensure_preview_segment_clip(
                     project_root=project_root,

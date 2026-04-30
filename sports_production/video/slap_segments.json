@@ -10,18 +10,24 @@
       "aroll_segment_index": 2,
       "aroll_segment_name": "Segment 3",
       "max_duration": 4.852,
-      "broll_format": "B-Roll Only",
+      "broll_format": "B-Roll Main, A-Roll Bubble",
       "splitRatio": 0.5,
       "visual_transforms": {
         "aroll": {
           "zoom": 1.0,
           "posX": 0.0,
-          "posY": 0.0
+          "posY": 19.0
         },
         "broll": {
           "zoom": 1.2,
           "posX": -43.0,
           "posY": 269.0
+        },
+        "bubble": {
+          "posX": -270.0,
+          "posY": 567.0,
+          "zoom": 1.0,
+          "softness": 0.05
         }
       },
       "aroll_partition_index": 0
@@ -45,6 +51,12 @@
           "zoom": 1.0,
           "posX": 0.0,
           "posY": 0.0
+        },
+        "bubble": {
+          "posX": -270.0,
+          "posY": 700.0,
+          "zoom": 1.0,
+          "softness": 0.0
         }
       },
       "aroll_partition_index": 0

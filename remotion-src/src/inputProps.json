@@ -13,6 +13,12 @@
           "zoom": 1.02,
           "posX": 112.0,
           "posY": -90.0
+        },
+        "bubble": {
+          "posX": -270.0,
+          "posY": 700.0,
+          "zoom": 1.0,
+          "softness": 0.3
         }
       }
     },
@@ -29,6 +35,12 @@
           "zoom": 1.05,
           "posX": 112.0,
           "posY": 0.0
+        },
+        "bubble": {
+          "posX": -270.0,
+          "posY": 700.0,
+          "zoom": 1.0,
+          "softness": 0.3
         }
       }
     },
@@ -39,12 +51,18 @@
         "aroll": {
           "zoom": 1.0,
           "posX": 0.0,
-          "posY": 0.0
+          "posY": 19.0
         },
         "broll": {
           "zoom": 1.2,
           "posX": -43.0,
           "posY": 269.0
+        },
+        "bubble": {
+          "posX": -270.0,
+          "posY": 567.0,
+          "zoom": 1.0,
+          "softness": 0.05
         }
       }
     },
@@ -61,6 +79,12 @@
           "zoom": 1.0,
           "posX": 0.0,
           "posY": 0.0
+        },
+        "bubble": {
+          "posX": -270.0,
+          "posY": 700.0,
+          "zoom": 1.0,
+          "softness": 0.0
         }
       }
     }

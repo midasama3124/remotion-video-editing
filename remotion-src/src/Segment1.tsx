@@ -3,9 +3,11 @@ import React from "react";
 import { staticFile } from "remotion";
 import { HalfAndHalf } from "./layouts/HalfAndHalf";
 
+type BubbleTransform = { posX: number; posY: number; zoom: number; softness: number };
 type SegmentTransforms = {
     aroll: { zoom: number; posX: number; posY: number };
     broll: { zoom: number; posX: number; posY: number };
+    bubble: BubbleTransform;
 };
 
 export const Segment1: React.FC<{ splitRatio: number; visualTransforms: SegmentTransforms }> = ({ splitRatio, visualTransforms }) => (

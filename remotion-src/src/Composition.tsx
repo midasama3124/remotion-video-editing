@@ -8,9 +8,11 @@ import { Segment3 } from "./Segment3";
 
 export const TOTAL_DURATION_FRAMES = 401;
 
+type BubbleTransform = { posX: number; posY: number; zoom: number; softness: number };
 type SegmentTransforms = {
   aroll: { zoom: number; posX: number; posY: number };
   broll: { zoom: number; posX: number; posY: number };
+  bubble: BubbleTransform;
 };
 
 type Props = {
